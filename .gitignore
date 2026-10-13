@@ -13,3 +13,15 @@ dist/
 .venv*/
 .uvpy/
 _smoke_test.py
+
+# Server secrets and runtime data
+.env
+.env.*
+!.env.example
+tls/
+data/
+*.db
+*.db-shm
+*.db-wal
+__pycache__/
+.venv/
