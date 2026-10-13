@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Сайты — SMTP Admin{% endblock %}
+{% block body %}
+<div class="layout">
+    {% set active = "sites" %}
+    {% include "nav.html" %}
+    <div class="main">
+        <div class="page-header">
+            <h2>Сайты</h2>
+            <a href="/admin/sites/new" class="btn btn-primary">+ Добавить сайт</a>
+        </div>
+
+        {% if sites %}
+        {% for site in sites %}
+        <div class="legacy-68 section">
+            <div class="legacy-69">
+                <div>
+                    <h3 class="legacy-70">{{ site.name }}</h3>
+                    <span class="legacy-71">{{ site.domain }}</span>
+                    {% if site.relay_host %}
+                    <span class="legacy-72 badge badge-blue">{{ site.relay_host }}</span>
+                    {% endif %}
+                </div>
+                <div class="legacy-73">
+                    {% if site.is_active %}
+                    <span class="badge badge-green">Активен</span>
+                    {% else %}
+                    <span class="badge badge-red">Выключен</span>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="legacy-74">
+                <label class="legacy-75">API ключ</label>
+                <div class="legacy-20">
+                    <input type="text" id="key-{{ site.id }}" value="{{ site.api_key }}" readonly
+                           class="legacy-76">
+                    <button class="btn btn-primary btn-sm" data-copy="key-{{ site.id }}">Копировать</button>
+                </div>
+            </div>
+
+            <div class="legacy-77">
+                <a href="/admin/sites/{{ site.id }}/dns" class="legacy-42 btn btn-ghost btn-sm">DNS</a>
+                <a href="/admin/sites/{{ site.id }}/edit" class="btn btn-ghost btn-sm">Изменить</a>
+                <form method="post" action="/admin/sites/{{ site.id }}/regenerate-key" class="legacy-78">
+<input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+                    <button type="submit" class="btn btn-ghost btn-sm" data-confirm="Перегенерировать API-ключ? Старый ключ перестанет работать.">Новый ключ</button>
+                </form>
+                <form method="post" action="/admin/sites/{{ site.id }}/toggle" class="legacy-78">
+<input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+                    <button type="submit" class="btn btn-ghost btn-sm">
+                        {% if site.is_active %}Выключить{% else %}Включить{% endif %}
+                    </button>
+                </form>
+                <form method="post" action="/admin/sites/{{ site.id }}/delete"
+                      data-confirm="Удалить сайт «{{ site.name }}»?" class="legacy-78">
+<input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+                    <button type="submit" class="btn btn-danger btn-sm">Удалить</button>
+                </form>
+            </div>
+        </div>
+        {% endfor %}
+        {% else %}
+        <div class="section">
+            <div class="empty-state">
+                <p>Нет добавленных сайтов</p>
+                <a href="/admin/sites/new" class="legacy-79 btn btn-primary">Добавить первый сайт</a>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+
+{% endblock %}

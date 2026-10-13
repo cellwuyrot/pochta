@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% set active = "users" %}
+{% block title %}Пользователи — SMTP Admin{% endblock %}
+{% block body %}
+<div class="layout">{% include "nav.html" %}<main class="main">
+<div class="page-header">
+    <h2>Пользователи</h2>
+    <a href="/admin/users/new" class="btn btn-primary">+ Новый пользователь</a>
+</div>
+
+<div class="legacy-91 section">
+    <table>
+        <thead>
+            <tr>
+                <th>Логин</th>
+                <th>Роль</th>
+                <th>Статус</th>
+                <th>Создан</th>
+                <th>Действия</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for u in users %}
+            <tr>
+                <td class="legacy-92">
+                    {{ u.username }}
+                    {% if u.id == current_user.id %}
+                    <span class="legacy-93 badge">вы</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if u.role == 'admin' %}
+                    <span class="legacy-94 badge">Админ</span>
+                    {% else %}
+                    <span class="legacy-12 badge">Пользователь</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if u.is_active %}
+                    <span class="badge badge-green">Активен</span>
+                    {% else %}
+                    <span class="badge badge-red">Отключён</span>
+                    {% endif %}
+                </td>
+                <td class="legacy-95">{{ u.created_at.strftime('%d.%m.%Y %H:%M') if u.created_at else '—' }}</td>
+                <td>
+                    <a href="/admin/users/{{ u.id }}/edit" class="btn btn-ghost btn-sm">Изменить</a>
+                    {% if u.id != current_user.id %}
+                    <form method="post" action="/admin/users/{{ u.id }}/delete" data-confirm="Удалить пользователя {{ u.username }}?" class="legacy-78">
+<input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+                        <button type="submit" class="btn btn-danger btn-sm">Удалить</button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+</main></div>
+{% endblock %}

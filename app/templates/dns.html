@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}DNS — {{ site.domain }}{% endblock %}
+{% block body %}
+<div class="layout">
+    {% set active = "sites" %}
+    {% include "nav.html" %}
+    <div class="main">
+        <div class="page-header">
+            <a href="/admin/sites" class="legacy-3">&larr; Назад к сайтам</a>
+            <h2>DNS записи — {{ site.domain }}</h2>
+        </div>
+
+        <div class="legacy-4 section">
+            <div class="legacy-5">
+                <div>
+                    <h3 class="legacy-6">Настройка DNS</h3>
+                    <p class="legacy-7">
+                        Добавьте эти записи в DNS-панели вашего хостинга (Cloudflare, REG.RU и т.д.)
+                        для проверки отправляющего домена <b>{{ site.domain }}</b>.
+                    </p>
+                </div>
+                <button id="btn-verify" class="legacy-8 btn btn-primary" data-verify-dns="{{ site.id }}">
+                    Проверить DNS
+                </button>
+            </div>
+            <div id="verify-result" hidden></div>
+        </div>
+
+        <p class="notice">MX нужен только при явно включённом INBOUND_ENABLED. Для внешнего SMTP relay используйте SPF include, указанный вашим провайдером; SPF ip4 ниже предназначен для прямой отправки с сервера.</p>
+        <div class="section">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Тип</th>
+                        <th>Имя (Name)</th>
+                        <th>Значение (Value)</th>
+                        <th>Приоритет</th>
+                        <th>Статус</th>
+                        <th>Описание</th>
+                    </tr>
+                </thead>
+                <tbody id="dns-table-body">
+                    {% for r in dns_records %}
+                    {% set rtype = 'dmarc' if '_dmarc' in r.name else ('spf' if r.type == 'TXT' else ('mx' if r.type == 'MX' else 'other')) %}
+                    <tr>
+                        <td><span class="badge badge-blue">{{ r.type }}</span></td>
+                        <td class="legacy-10">{{ r.name }}</td>
+                        <td class="legacy-11">{{ r.value }}</td>
+                        <td>{{ r.priority if r.priority else '—' }}</td>
+                        <td>
+                            {% if rtype in ['spf', 'dmarc', 'mx'] %}
+                            <span class="dns-status" data-type="{{ rtype }}">
+                                <span class="legacy-12 badge">Не проверено</span>
+                            </span>
+                            {% else %}
+                            <span class="legacy-13">—</span>
+                            {% endif %}
+                        </td>
+                        <td class="legacy-14">{{ r.description }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="legacy-15 section">
+            <h3 class="legacy-16">Шаг 1: Добавьте DNS записи</h3>
+            <ol class="legacy-17">
+                <li>Зайдите в панель управления DNS вашего домена (Cloudflare, REG.RU, Timeweb, Beget и т.д.)</li>
+                <li>Добавьте <b>SPF</b> запись (TXT) — разрешает серверу отправлять письма от имени домена</li>
+                <li>Добавьте <b>DMARC</b> запись (TXT) — определяет политику обработки неавторизованных писем</li>
+                <li>Добавьте <b>MX</b> запись — если хотите принимать входящие письма на сервер</li>
+                <li>Нажмите кнопку <b>«Проверить DNS»</b> выше — система проверит что записи настроены</li>
+            </ol>
+        </div>
+
+        <div class="legacy-18 section">
+            <h3 class="legacy-16">Шаг 2: API-ключ этого домена</h3>
+            <p class="legacy-19">Используйте этот ключ для отправки писем от имени <b>{{ site.domain }}</b>:</p>
+            <div class="legacy-20">
+                <input type="text" id="site-api-key" value="{{ site.api_key }}" readonly
+                       class="legacy-21">
+                <button class="btn btn-primary btn-sm" data-copy="site-api-key">Копировать</button>
+            </div>
+        </div>
+
+        <div class="legacy-18 section">
+            <h3 class="legacy-16">Шаг 3: Интеграция с проектом</h3>
+            <p class="legacy-19">Добавьте в <code>.env</code> вашего проекта:</p>
+            <pre class="legacy-22">SMTP_SERVICE_URL=http://{{ server_ip }}:3005
+SMTP_API_KEY={{ site.api_key }}</pre>
+        </div>
+
+        <div class="legacy-18 section">
+            <h3 class="legacy-16">Шаг 4: Отправка писем (curl)</h3>
+            <pre class="legacy-22">curl -X POST http://{{ server_ip }}:3005/api/emails \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer {{ site.api_key }}" \
+  -d '{
+    "from_email": "noreply@{{ site.domain }}",
+    "to": "user@example.com",
+    "subject": "Код подтверждения",
+    "html": "&lt;p&gt;Ваш код: &lt;b&gt;123456&lt;/b&gt;&lt;/p&gt;"
+  }'</pre>
+        </div>
+
+        <div class="legacy-18 section">
+            <h3 class="legacy-16">Шаг 5: Интеграция в Next.js / Node.js</h3>
+            <pre class="legacy-22">// lib/email.ts
+export async function sendVerificationCode(email: string, code: string) {
+  const res = await fetch(`${process.env.SMTP_SERVICE_URL}/api/emails`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${process.env.SMTP_API_KEY}`,
+    },
+    body: JSON.stringify({
+      from_email: 'noreply@{{ site.domain }}',
+      to: email,
+      subject: 'Код подтверждения',
+      html: `&lt;p&gt;Ваш код: &lt;b&gt;${code}&lt;/b&gt;&lt;/p&gt;`,
+    }),
+  });
+  return res.json();
+}
+
+// Использование в API route:
+// const code = Math.floor(100000 + Math.random() * 900000).toString();
+// await sendVerificationCode(userEmail, code);</pre>
+        </div>
+    </div>
+</div>
+
+
+{% endblock %}

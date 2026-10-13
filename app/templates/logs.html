@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Логи — SMTP Admin{% endblock %}
+{% block body %}
+<div class="layout">
+    {% set active = "logs" %}
+    {% include "nav.html" %}
+    <div class="main">
+        <div class="page-header">
+            <h2>Логи писем <span class="legacy-56">({{ total }})</span></h2>
+            {% if total > 0 %}
+            <form method="post" action="/admin/logs/clear" data-confirm="Очистить все логи?">
+<input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+                <button type="submit" class="btn btn-danger">Очистить логи</button>
+            </form>
+            {% endif %}
+        </div>
+        <div class="section">
+            {% if logs %}
+            <table class="messages-table">
+                <thead>
+                    <tr>
+                        <th>ID / маршрут</th>
+                        <th>Тип</th>
+                        <th>От</th>
+                        <th>Кому</th>
+                        <th>Тема</th>
+                        <th>Статус</th>
+                        <th>Ошибка</th>
+                        <th>Дата</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in logs %}
+                    <tr>
+                        <td class="legacy-57">{{ log.id }}<br>{% if log.message_id %}<a href="/admin/messages/{{ log.message_id }}">{{ log.message_id[:12] }}</a>{% endif %}<br>{{ log.relay_source or '—' }}</td>
+                        <td>
+                            {% if log.direction == 'outgoing' %}
+                            <span class="badge badge-blue">Исход.</span>
+                            {% else %}
+                            <span class="badge badge-green">Вход.</span>
+                            {% endif %}
+                        </td>
+                        <td title="{{ log.sender }}">{{ log.sender[:25] }}</td>
+                        <td title="{{ log.recipient }}">{{ log.recipient[:25] }}</td>
+                        <td title="{{ log.subject }}">{{ log.subject[:35] }}</td>
+                        <td>
+                            {% if log.status == 'sent' or log.status == 'received' %}
+                            <span class="badge badge-green">{{ log.status }}</span>
+                            {% else %}
+                            <span class="badge badge-red">{{ log.status }}</span>
+                            {% endif %}
+                        </td>
+                        <td title="{{ log.error_message }}" class="legacy-58">
+                            {{ log.error_message[:30] if log.error_message else '—' }}
+                        </td>
+                        <td class="legacy-59">
+                            {{ log.created_at.strftime('%d.%m.%Y %H:%M') if log.created_at else '' }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+            {% if total_pages > 1 %}
+            <div class="pagination">
+                {% if page > 1 %}
+                <a href="/admin/logs?page={{ page - 1 }}">←</a>
+                {% endif %}
+                {% for p in range(1, total_pages + 1) %}
+                    {% if p == page %}
+                    <span>{{ p }}</span>
+                    {% elif p <= 3 or p > total_pages - 2 or (p >= page - 1 and p <= page + 1) %}
+                    <a href="/admin/logs?page={{ p }}">{{ p }}</a>
+                    {% elif p == 4 or p == total_pages - 2 %}
+                    <span class="legacy-57">...</span>
+                    {% endif %}
+                {% endfor %}
+                {% if page < total_pages %}
+                <a href="/admin/logs?page={{ page + 1 }}">→</a>
+                {% endif %}
+            </div>
+            {% endif %}
+            {% else %}
+            <div class="empty-state">
+                <p>Нет записей</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

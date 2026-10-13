@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}{% if webhook %}Изменить webhook{% else %}Новый webhook{% endif %} — SMTP Admin{% endblock %}
+{% block body %}
+<div class="layout">
+    {% set active = "webhooks" %}
+    {% include "nav.html" %}
+    <div class="main">
+        <div class="page-header">
+            <h2>{% if webhook %}Изменить webhook{% else %}Новый webhook{% endif %}</h2>
+            <a href="/admin/webhooks" class="btn btn-ghost">Назад</a>
+        </div>
+
+        {% if error %}
+        <div class="legacy-108 section">
+            {{ error }}
+        </div>
+        {% endif %}
+
+        <div class="legacy-109 section">
+            <form method="post" action="{% if webhook %}/admin/webhooks/{{ webhook.id }}/edit{% else %}/admin/webhooks/new{% endif %}">
+<input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+                <div class="form-group">
+                    <label>Сайт</label>
+                    <select name="site_id" required>
+                        {% for site in sites %}
+                        <option value="{{ site.id }}"
+                            {% if webhook and webhook.site_id == site.id %}selected{% endif %}>
+                            {{ site.name }} ({{ site.domain }})
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>URL получателя</label>
+                    <input type="url" name="url" required placeholder="https://example.com/hooks/smtp"
+                           value="{{ webhook.url if webhook else '' }}">
+                    <span class="legacy-110">
+                        Адреса в приватных и loopback-сетях запрещены — иначе ключ от API можно
+                        было бы использовать для сканирования внутренней сети.
+                    </span>
+                </div>
+
+                <div class="form-group">
+                    <label>Описание (необязательно)</label>
+                    <input type="text" name="description" placeholder="Например: продакшн-бэкенд"
+                           value="{{ webhook.description if webhook else '' }}">
+                </div>
+
+                <div class="form-group">
+                    <label>События</label>
+                    <div class="legacy-111">
+                        {% for event in all_events %}
+                        <label class="legacy-112">
+                            <input type="checkbox" name="events" value="{{ event }}"
+                                  
+                                   {% if not webhook or event in webhook.event_list %}checked{% endif %} class="legacy-113">
+                            <code class="legacy-42">{{ event }}</code>
+                            <span class="legacy-95">
+                                {% if event == 'email.sent' %}письмо принято следующим узлом
+                                {% elif event == 'email.failed' %}письмо не удалось доставить
+                                {% elif event == 'email.received' %}на ваш домен пришло входящее письмо
+                                {% endif %}
+                            </span>
+                        </label>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                {% if webhook %}
+                <div class="form-group">
+                    <label class="legacy-112">
+                        <input type="checkbox" name="is_active" value="true"
+                               {% if webhook.is_active %}checked{% endif %} class="legacy-113">
+                        Активен
+                    </label>
+                </div>
+                {% endif %}
+
+                <div class="legacy-114">
+                    <button type="submit" class="btn btn-primary">
+                        {% if webhook %}Сохранить{% else %}Создать{% endif %}
+                    </button>
+                    <a href="/admin/webhooks" class="btn btn-ghost">Отмена</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

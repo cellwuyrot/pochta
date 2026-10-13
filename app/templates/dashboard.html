@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Обзор — SMTP Admin{% endblock %}
+{% block body %}
+<div class="layout">
+    {% set active = "dashboard" %}
+    {% include "nav.html" %}
+    <div class="main">
+        <div class="page-header">
+            <h2>Обзор</h2>
+        </div>
+        <p class="muted">Приём relay не подтверждает доставку в ящик получателя.</p>
+        <div class="metrics">
+            <div class="metric">
+                <div class="value">{{ sites_count }}</div>
+                <div class="label">Сайтов</div>
+            </div>
+            <div class="metric">
+                <div class="value">{{ templates_count }}</div>
+                <div class="label">Шаблонов</div>
+            </div>
+            <div class="metric">
+                <div class="value">{{ total_sent }}</div>
+                <div class="label">Принято relay</div>
+            </div>
+            <div class="metric">
+                <div class="value">{{ total_received }}</div>
+                <div class="label">Получено</div>
+            </div>
+            <div class="metric"><div class="value">{{ total_failed }}</div><div class="label">Ошибки / unknown</div></div>
+            <div class="metric"><div class="value">{{ queued_count }}</div><div class="label">В очереди</div></div>
+        </div>
+
+        <div class="section">
+            <h3 class="legacy-1">Последние события</h3>
+            {% if recent_logs %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Тип</th>
+                        <th>От</th>
+                        <th>Кому</th>
+                        <th>Тема</th>
+                        <th>Статус</th>
+                        <th>Дата</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in recent_logs %}
+                    <tr>
+                        <td>
+                            {% if log.direction == 'outgoing' %}
+                            <span class="badge badge-blue">Исход.</span>
+                            {% else %}
+                            <span class="badge badge-green">Вход.</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ log.sender[:30] }}</td>
+                        <td>{{ log.recipient[:30] }}</td>
+                        <td>{{ log.subject[:40] }}</td>
+                        <td>
+                            {% if log.status == 'sent' or log.status == 'received' %}
+                            <span class="badge badge-green">{{ log.status }}</span>
+                            {% else %}
+                            <span class="badge badge-red">{{ log.status }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="legacy-2">{{ log.created_at.strftime('%d.%m %H:%M') if log.created_at else '' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="empty-state">
+                <p>Нет событий</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

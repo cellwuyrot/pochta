@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Доставки webhook — SMTP Admin{% endblock %}
+{% block body %}
+<div class="layout">
+    {% set active = "webhooks" %}
+    {% include "nav.html" %}
+    <div class="main">
+        <div class="page-header">
+            <div>
+                <h2>Доставки</h2>
+                <span class="legacy-96">{{ webhook.url }}</span>
+            </div>
+            <div class="legacy-97">
+                <form method="post" action="/admin/webhooks/{{ webhook.id }}/test" class="legacy-78">
+<input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+                    <button type="submit" class="btn btn-primary btn-sm">Отправить тест</button>
+                </form>
+                <a href="/admin/webhooks" class="btn btn-ghost btn-sm">Назад</a>
+            </div>
+        </div>
+
+        {% if deliveries %}
+        <div class="legacy-98 section">
+            <table class="legacy-99">
+                <thead>
+                    <tr class="legacy-100">
+                        <th class="legacy-101">Событие</th>
+                        <th class="legacy-101">Статус</th>
+                        <th class="legacy-101">HTTP</th>
+                        <th class="legacy-101">Попыток</th>
+                        <th class="legacy-101">Создано</th>
+                        <th class="legacy-101">Ошибка</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for d in deliveries %}
+                    <tr class="legacy-102">
+                        <td class="legacy-103"><code class="legacy-42">{{ d.event }}</code></td>
+                        <td class="legacy-103">
+                            {% if d.status == 'success' %}
+                            <span class="badge badge-green">success</span>
+                            {% elif d.status == 'failed' %}
+                            <span class="badge badge-red">failed</span>
+                            {% else %}
+                            <span class="badge badge-blue">pending</span>
+                            {% endif %}
+                        </td>
+                        <td class="legacy-103">{{ d.response_status or '—' }}</td>
+                        <td class="legacy-103">{{ d.attempts }}</td>
+                        <td class="legacy-104">
+                            {{ d.created_at.strftime('%d.%m.%Y %H:%M:%S') if d.created_at else '—' }}
+                        </td>
+                        <td class="legacy-105">
+                            {{ d.error_message or '' }}
+                            {% if d.status == 'pending' and d.attempts > 0 and d.next_attempt_at %}
+                            <span class="legacy-106">
+                                следующая попытка {{ d.next_attempt_at.strftime('%H:%M:%S') }}
+                            </span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="legacy-107 section">
+            <h3 class="legacy-43">Доставок пока нет</h3>
+            <p class="legacy-14">
+                Отправьте тестовое событие или дождитесь первого письма по подписанным событиям.
+            </p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,68 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "smtp-service"
+# Single source of truth is app/__init__.py, so the running app, /api/health and
+# the package metadata cannot drift apart (they previously reported 1.0.0 and
+# 2.0.0 simultaneously).
+dynamic = ["version"]
+description = "SMTP service with admin panel for managing email sending"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "aiosmtpd>=1.4.6",
+    "sqlalchemy[asyncio]>=2.0.0",
+    "aiosqlite>=0.20.0",
+    "python-dotenv>=1.0.0",
+    "jinja2>=3.1.0",
+    "python-multipart>=0.0.9",
+    "bcrypt>=4.0.0",
+    "itsdangerous>=2.2.0",
+    "aiofiles>=24.1.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "dnspython>=2.6.0",
+    "dkimpy>=1.1.0",
+    "cryptography>=42.0.0",
+    # Async HTTP client used by the webhook dispatcher.
+    "httpx>=0.27.0,<1.0",
+    "httpcore>=1.0,<2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.5.0",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "httpx>=0.27.0,<1.0",
+]
+
+[tool.setuptools.dynamic]
+version = { attr = "app.__version__" }
+
+# Without this, setuptools' flat-layout auto-discovery treats every top-level
+# directory as a candidate package and aborts with "Multiple top-level packages
+# discovered: ['app', 'data']" — because ``data/`` is created at runtime for the
+# SQLite file and the session key. That made `pip install .` fail on any checkout
+# where the app had been started at least once.
+[tool.setuptools]
+packages = ["app"]
+
+[tool.setuptools.package-data]
+app = ["templates/*.html", "static/*", "static/css/*.css", "static/js/*.js"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = ["E501"]

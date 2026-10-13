@@ -1,0 +1,50 @@
+<div class="sidebar">
+    <div class="sidebar-brand">
+        <h1>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22">
+                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                <polyline points="22,6 12,13 2,6"/>
+            </svg>
+            SMTP Service
+        </h1>
+        <span>Панель управления</span>
+    </div>
+    <button class="btn mobile-toggle" aria-expanded="false" type="button">Меню</button>
+    <a href="/admin" class="nav-item {% if active == 'dashboard' %}active{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        Обзор
+    </a>
+    <a href="/admin/sites" class="nav-item {% if active == 'sites' %}active{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+        Сайты
+    </a>
+    <a href="/admin/providers" class="nav-item {% if active == 'providers' %}active{% endif %}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 6h18v12H3zM3 12h18"/></svg>SMTP-провайдеры</a>
+    <a href="/admin/queue" class="nav-item {% if active == 'queue' %}active{% endif %}">Очередь</a>
+    <a href="/admin/settings" class="nav-item {% if active == 'settings' %}active{% endif %}">Диагностика</a>
+    <a href="/admin/templates" class="nav-item {% if active == 'templates' %}active{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        Шаблоны
+    </a>
+    <a href="/admin/webhooks" class="nav-item {% if active == 'webhooks' %}active{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        Webhooks
+    </a>
+    <a href="/admin/logs" class="nav-item {% if active == 'logs' %}active{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
+        Сообщения
+    </a>
+    <a href="/admin/guide" class="nav-item {% if active == 'guide' %}active{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+        Гайд
+    </a>
+    {% if request.state.user_role is defined and request.state.user_role == 'admin' %}
+    <a href="/admin/users" class="nav-item {% if active == 'users' %}active{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        Пользователи
+    </a>
+    {% endif %}
+    <div class="nav-footer"><form method="post" action="/admin/logout">
+        <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+        <button class="nav-item" type="submit">Выйти · {{ admin }}</button>
+    </form></div>
+</div>

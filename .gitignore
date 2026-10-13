@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+data/
+*.db
+.venv/
+.ruff_cache/
+dist/
+*.egg-info/
+
+# local tooling
+.venv*/
+.uvpy/
+_smoke_test.py

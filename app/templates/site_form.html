@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}{% if site %}Редактировать сайт{% else %}Новый сайт{% endif %} — SMTP Admin{% endblock %}
+{% block body %}
+<div class="layout">
+    {% set active = "sites" %}
+    {% include "nav.html" %}
+    <div class="main">
+        <div class="page-header">
+            <h2>{% if site %}Редактировать: {{ site.name }}{% else %}Новый сайт{% endif %}</h2>
+            <a href="/admin/sites" class="btn btn-ghost">← Назад</a>
+        </div>
+        <div class="legacy-62 section">
+            <form method="post" action="{% if site %}/admin/sites/{{ site.id }}/edit{% else %}/admin/sites/new{% endif %}">
+<input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Название сайта</label>
+                        <input type="text" name="name" value="{{ site.name if site else '' }}" required placeholder="Мой магазин">
+                    </div>
+                    <div class="form-group">
+                        <label>Домен</label>
+                        <input type="text" name="domain" value="{{ site.domain if site else '' }}" required placeholder="example.com">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Email отправителя</label>
+                        <input type="email" name="sender_email" value="{{ site.sender_email if site else '' }}" required placeholder="noreply@example.com">
+                    </div>
+                    <div class="form-group">
+                        <label>Имя отправителя</label>
+                        <input type="text" name="sender_name" value="{{ site.sender_name if site else '' }}" placeholder="Мой магазин">
+                    </div>
+                </div>
+                {% if site %}
+                <div class="form-group">
+                    <div class="form-check">
+                        <input type="checkbox" name="is_active" value="true" id="is_active" {% if site.is_active %}checked{% endif %}>
+                        <label for="is_active" class="legacy-63">Активен</label>
+                    </div>
+                </div>
+                {% endif %}
+
+                <h3 class="legacy-64">SMTP Relay (необязательно)</h3>
+                {% if provider_count %}
+                <div class="legacy-65">
+                    У этого сайта настроено провайдеров через API: <strong class="legacy-66">{{ provider_count }}</strong>.
+                    Они имеют приоритет над полями ниже — эти значения будут использованы
+                    только если все провайдеры недоступны.
+                    <br>Порядок можно посмотреть в <code>GET /api/providers/{id}/resolved-order</code>.
+                </div>
+                {% endif %}
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>SMTP хост</label>
+                        <input type="text" name="relay_host" value="{{ site.relay_host if site else '' }}" placeholder="smtp.gmail.com">
+                    </div>
+                    <div class="form-group">
+                        <label>Порт</label>
+                        <input type="number" name="relay_port" value="{{ site.relay_port if site else 587 }}" placeholder="587">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Логин</label>
+                        <input type="text" name="relay_username" value="{{ site.relay_username if site else '' }}" placeholder="user@gmail.com">
+                    </div>
+                    <div class="form-group">
+                        <label>Пароль</label>
+                        <input type="password" name="relay_password" value="" autocomplete="new-password" placeholder="Пусто — сохранить текущий пароль">
+                    </div>
+                </div>
+                <div class="form-check"><input type="checkbox" name="clear_relay_password" value="true" id="clear-secret"><label for="clear-secret">Удалить сохранённый пароль relay</label></div>
+                <div class="form-group">
+                    <div class="form-check">
+                        <input type="checkbox" name="relay_use_tls" value="true" id="relay_tls"
+                               {% if (site and site.relay_use_tls) or not site %}checked{% endif %}>
+                        <label for="relay_tls" class="legacy-63">Использовать TLS</label>
+                    </div>
+                </div>
+
+                <div class="legacy-67">
+                    <button type="submit" class="btn btn-primary">{% if site %}Сохранить{% else %}Создать{% endif %}</button>
+                    <a href="/admin/sites" class="btn btn-ghost">Отмена</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

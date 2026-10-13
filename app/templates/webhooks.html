@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Webhooks — SMTP Admin{% endblock %}
+{% block body %}
+<div class="layout">
+    {% set active = "webhooks" %}
+    {% include "nav.html" %}
+    <div class="main">
+        <div class="page-header">
+            <h2>Webhooks</h2>
+            <a href="/admin/webhooks/new" class="btn btn-primary">+ Добавить webhook</a>
+        </div>
+
+        {% if webhooks %}
+        {% for hook in webhooks %}
+        <div class="legacy-68 section">
+            <div class="legacy-69">
+                <div class="legacy-115">
+                    <h3 class="legacy-116">{{ hook.url }}</h3>
+                    <span class="legacy-71">{{ hook.site.domain }}</span>
+                    {% if hook.description %}
+                    <span class="legacy-71"> — {{ hook.description }}</span>
+                    {% endif %}
+                </div>
+                <div class="legacy-117">
+                    {% if hook.is_active %}
+                    <span class="badge badge-green">Активен</span>
+                    {% else %}
+                    <span class="badge badge-red">Выключен</span>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="legacy-118">
+                {% for event in hook.event_list %}
+                <span class="badge badge-blue">{{ event }}</span>
+                {% endfor %}
+            </div>
+
+            <div class="legacy-74">
+                <label class="legacy-75">Секрет подписи</label>
+                <div class="legacy-20">
+                    <input type="text" id="secret-{{ hook.id }}" value="{{ hook.secret }}" readonly
+                           class="legacy-76">
+                    <button class="btn btn-primary btn-sm" data-copy="secret-{{ hook.id }}">Копировать</button>
+                </div>
+            </div>
+
+            <div class="legacy-119">
+                <span>Всего доставок: <strong class="legacy-120">{{ counts.get(hook.id, 0) }}</strong></span>
+                {% if pending.get(hook.id, 0) %}
+                <span>В очереди: <strong class="legacy-121">{{ pending.get(hook.id) }}</strong></span>
+                {% endif %}
+                {% if failed.get(hook.id, 0) %}
+                <span>Провалено: <strong class="legacy-122">{{ failed.get(hook.id) }}</strong></span>
+                {% endif %}
+            </div>
+
+            <div class="legacy-77">
+                <a href="/admin/webhooks/{{ hook.id }}/deliveries" class="legacy-42 btn btn-ghost btn-sm">Доставки</a>
+                <a href="/admin/webhooks/{{ hook.id }}/edit" class="btn btn-ghost btn-sm">Изменить</a>
+                <form method="post" action="/admin/webhooks/{{ hook.id }}/test" class="legacy-78">
+<input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+                    <button type="submit" class="btn btn-ghost btn-sm">Тест</button>
+                </form>
+                <form method="post" action="/admin/webhooks/{{ hook.id }}/toggle" class="legacy-78">
+<input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+                    <button type="submit" class="btn btn-ghost btn-sm">{% if hook.is_active %}Выключить{% else %}Включить{% endif %}</button>
+                </form>
+                <form method="post" action="/admin/webhooks/{{ hook.id }}/rotate-secret"
+                      data-confirm="Сгенерировать новый секрет? Старый перестанет работать сразу." class="legacy-78">
+<input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+                    <button type="submit" class="btn btn-ghost btn-sm">Новый секрет</button>
+                </form>
+                <form method="post" action="/admin/webhooks/{{ hook.id }}/delete"
+                      data-confirm="Удалить webhook и всю историю доставок?" class="legacy-78">
+<input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+                    <button type="submit" class="legacy-122 btn btn-ghost btn-sm">Удалить</button>
+                </form>
+            </div>
+        </div>
+        {% endfor %}
+        {% else %}
+        <div class="legacy-107 section">
+            <h3 class="legacy-43">Webhooks ещё не настроены</h3>
+            <p class="legacy-123">
+                Webhook — это ваш URL, на который сервис присылает события о письмах:
+                отправлено, не доставлено, получено. Подходит, чтобы подключить CRM,
+                Slack или собственный бэкенд.
+            </p>
+            <a href="/admin/webhooks/new" class="btn btn-primary">Добавить первый webhook</a>
+        </div>
+        {% endif %}
+
+        <div class="legacy-124 section">
+            <h3 class="legacy-74">Как проверять подпись</h3>
+            <p class="legacy-125">
+                Каждый запрос приходит с заголовком <code>X-Smtp-Signature</code> вида
+                <code>t=&lt;unix-время&gt;,v1=&lt;hmac&gt;</code>. Подпись — это HMAC-SHA256 от строки
+                <code>"{t}.{тело запроса}"</code> с ключом-секретом. Время в подписи позволяет
+                отклонять старые запросы (защита от replay).
+            </p>
+            <pre class="legacy-126">import hmac, hashlib, time
+
+def verify(secret, raw_body, header, tolerance=300):
+    parts = dict(p.split("=", 1) for p in header.split(","))
+    ts, given = int(parts["t"]), parts["v1"]
+    if abs(time.time() - ts) > tolerance:
+        return False
+    expected = hmac.new(
+        secret.encode(),
+        f"{ts}.".encode() + raw_body,
+        hashlib.sha256,
+    ).hexdigest()
+    return hmac.compare_digest(expected, given)</pre>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

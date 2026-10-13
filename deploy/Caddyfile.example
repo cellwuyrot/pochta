@@ -1,0 +1,6 @@
+# Run Caddy on the host, not in the SMTP container.
+# Replace admin.example.com and open 80/443 for ACME.
+admin.example.com {
+    reverse_proxy 127.0.0.1:3005
+    header Strict-Transport-Security "max-age=31536000"
+}

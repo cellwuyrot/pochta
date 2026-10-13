@@ -1,0 +1,376 @@
+{% extends "base.html" %}
+{% block title %}Гайд по настройке — SMTP Admin{% endblock %}
+{% block body %}
+<div class="layout">
+    {% set active = "guide" %}
+    {% include "nav.html" %}
+    <div class="main">
+        <div class="page-header">
+            <h2>Полный гайд по настройке SMTP-сервиса</h2>
+        </div>
+
+        <div class="notice">Веб-порт — <b>3005</b>; панель Docker доступна на localhost за HTTPS reverse proxy. SMTP AUTH требует STARTTLS и разрешённых доменов аккаунта. Входящие выключены по умолчанию. Для очереди используйте /api/outbox; SMTP acceptance не означает доставку в ящик. Полные инструкции обновления: UPGRADE.md в архиве.</div>
+        <!-- Step 1 -->
+        <div class="legacy-27 section">
+            <h3 class="legacy-28">
+                <span class="legacy-29">1</span>
+                Установка на VPS
+            </h3>
+            <p class="legacy-30">Клонируйте репозиторий и запустите установку:</p>
+            <pre class="legacy-22">unzip smtp-updated-3005.zip
+cd smtp-init-branch
+bash setup.sh</pre>
+            <p class="legacy-31">Скрипт запросит:</p>
+            <ul class="legacy-32">
+                <li><b>Логин</b> — имя пользователя для входа в админку</li>
+                <li><b>Пароль</b> — пароль для админки (скрытый ввод)</li>
+                <li><b>Домен/IP</b> — домен или IP вашего сервера (например <code>{{ server_ip }}</code>)</li>
+            </ul>
+            <p class="legacy-33">
+                После установки сохраните <b>API-ключ</b> из защищённого файла .env — он нужен для отправки писем через API.
+            </p>
+        </div>
+
+        <!-- Step 2 -->
+        <div class="legacy-27 section">
+            <h3 class="legacy-28">
+                <span class="legacy-29">2</span>
+                Добавление сайта в админке
+            </h3>
+            <ol class="legacy-34">
+                <li>Откройте <a href="/admin/sites">Сайты</a> → <b>Добавить сайт</b></li>
+                <li>Заполните:
+                    <table class="legacy-35">
+                        <tr><td class="legacy-36">Название</td><td class="legacy-37"><code>Мой сайт</code></td></tr>
+                        <tr><td class="legacy-36">Домен</td><td class="legacy-37"><code>example.com</code></td></tr>
+                        <tr><td class="legacy-36">Email отправителя</td><td class="legacy-37"><code>noreply@example.com</code></td></tr>
+                    </table>
+                </li>
+                <li><b>SMTP-провайдер (необходим по умолчанию)</b> — настройте внешний relay:
+                    <table class="legacy-35">
+                        <tr><td class="legacy-36">Yandex</td><td class="legacy-37"><code>smtp.yandex.ru:587</code></td></tr>
+                        <tr><td class="legacy-36">Gmail</td><td class="legacy-37"><code>smtp.gmail.com:587</code></td></tr>
+                        <tr><td class="legacy-36">Mail.ru</td><td class="legacy-37"><code>smtp.mail.ru:587</code></td></tr>
+                    </table>
+                    <span class="legacy-38">Используйте «пароль приложения», а не основной пароль</span>
+                </li>
+                <li>Direct MX выключен по умолчанию. Включайте ALLOW_DIRECT_MX только осознанно; рекомендуем настроенный SMTP-провайдер.</li>
+            </ol>
+        </div>
+
+        <!-- Step 3 -->
+        <div class="legacy-27 section">
+            <h3 class="legacy-28">
+                <span class="legacy-29">3</span>
+                Настройка DNS записей
+            </h3>
+            <p class="legacy-30">
+                Зайдите в DNS-панель вашего хостинга (Cloudflare, REG.RU, Timeweb и т.д.) и добавьте записи.
+                Посмотреть нужные записи можно на странице <b>Сайты → DNS</b> для вашего домена.
+            </p>
+
+            <h4 class="legacy-39">Обязательные записи:</h4>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Запись</th>
+                        <th>Тип</th>
+                        <th>Имя</th>
+                        <th>Значение</th>
+                        <th>Зачем</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><span class="badge badge-blue">SPF</span></td>
+                        <td>TXT</td>
+                        <td><code>@</code> (или домен)</td>
+                        <td class="legacy-10"><code>v=spf1 ip4:{{ server_ip }} ~all</code></td>
+                        <td class="legacy-14">Разрешает серверу отправлять письма</td>
+                    </tr>
+                    <tr>
+                        <td><span class="badge badge-blue">DMARC</span></td>
+                        <td>TXT</td>
+                        <td><code>_dmarc</code></td>
+                        <td class="legacy-10"><code>v=DMARC1; p=quarantine; rua=mailto:dmarc@ваш-домен</code></td>
+                        <td class="legacy-14">Политика обработки неавторизованных писем</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h4 class="legacy-39">Опционально (для приёма входящих писем):</h4>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Запись</th>
+                        <th>Тип</th>
+                        <th>Имя</th>
+                        <th>Значение</th>
+                        <th>Приоритет</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><span class="badge badge-blue">MX</span></td>
+                        <td>MX</td>
+                        <td><code>@</code> (или домен)</td>
+                        <td class="legacy-10"><code>mail.ваш-домен.ru</code></td>
+                        <td>10</td>
+                    </tr>
+                    <tr>
+                        <td><span class="badge badge-blue">A</span></td>
+                        <td>A</td>
+                        <td><code>mail</code></td>
+                        <td class="legacy-10"><code>{{ server_ip }}</code></td>
+                        <td>—</td>
+                    </tr>
+                </tbody>
+            </table>
+            <p class="legacy-40">
+                MX запись указывает на hostname (не IP). Создайте A-запись <code>mail.ваш-домен.ru</code> → IP сервера,
+                затем укажите её в MX.
+            </p>
+
+            <div class="legacy-41">
+                <b class="legacy-42">Проверка:</b>
+                <span class="legacy-14">После добавления записей зайдите в <b>Сайты → DNS</b> и нажмите «Проверить DNS» — система автоматически проверит корректность всех записей.</span>
+            </div>
+        </div>
+
+        <!-- Step 4 -->
+        <div class="legacy-27 section">
+            <h3 class="legacy-28">
+                <span class="legacy-29">4</span>
+                Интеграция с вашим проектом
+            </h3>
+            <p class="legacy-30">Добавьте в <code>.env</code> вашего проекта (Next.js, Node.js и т.д.):</p>
+            <pre class="legacy-22"># .env вашего проекта
+SMTP_SERVICE_URL=http://{{ server_ip }}:3005
+SMTP_API_KEY=sm_ваш_ключ_домена</pre>
+            <p class="legacy-40">
+                API-ключ берётся из <b>Сайты → DNS</b> (у каждого домена свой уникальный ключ).
+            </p>
+        </div>
+
+        <!-- Step 5 -->
+        <div class="legacy-27 section">
+            <h3 class="legacy-28">
+                <span class="legacy-29">5</span>
+                Отправка писем через API
+            </h3>
+
+            <h4 class="legacy-43">Метод 1: Прямая отправка (рекомендуется)</h4>
+            <p class="legacy-44">
+                <code>POST /api/emails</code> — отправляет письмо напрямую, не требует создания шаблона.
+            </p>
+            <pre class="legacy-45">curl -X POST http://{{ server_ip }}:3005/api/emails \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{
+    "from_email": "noreply@ваш-домен.ru",
+    "to": "user@example.com",
+    "subject": "Код подтверждения",
+    "html": "&lt;p&gt;Ваш код: &lt;b&gt;123456&lt;/b&gt;&lt;/p&gt;"
+  }'</pre>
+
+            <h4 class="legacy-43">Метод 2: Через шаблоны</h4>
+            <p class="legacy-44">
+                <code>POST /api/send</code> — использует шаблон, созданный в админке.
+                Создайте шаблон в <a href="/admin/templates">Шаблоны</a> с переменными <code>{% raw %}{{code}}{% endraw %}</code>, <code>{% raw %}{{name}}{% endraw %}</code>.
+            </p>
+            <pre class="legacy-22">curl -X POST http://{{ server_ip }}:3005/api/send \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{
+    "site_domain": "ваш-домен.ru",
+    "template_slug": "verification-code",
+    "to_email": "user@example.com",
+    "variables": {"code": "123456", "name": "Иван"}
+  }'</pre>
+        </div>
+
+        <!-- Step 6 -->
+        <div class="legacy-27 section">
+            <h3 class="legacy-28">
+                <span class="legacy-29">6</span>
+                Примеры кода
+            </h3>
+
+            <h4 class="legacy-43">Next.js / TypeScript</h4>
+            <pre class="legacy-45">// lib/email.ts
+export async function sendEmail(to: string, subject: string, html: string) {
+  const res = await fetch(`${process.env.SMTP_SERVICE_URL}/api/emails`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${process.env.SMTP_API_KEY}`,
+    },
+    body: JSON.stringify({
+      from_email: 'noreply@ваш-домен.ru',
+      to,
+      subject,
+      html,
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || 'Failed to send email');
+  }
+
+  return res.json(); // { id: "uuid", message: "Email sent" }
+}
+
+// Отправка кода подтверждения
+export async function sendVerificationCode(email: string, code: string) {
+  return sendEmail(
+    email,
+    'Код подтверждения',
+    `&lt;div data-css="legacy-46"&gt;
+      &lt;h2&gt;Код подтверждения&lt;/h2&gt;
+      &lt;p data-css="legacy-47"&gt;${code}&lt;/p&gt;
+      &lt;p data-css="legacy-48"&gt;Код действителен 10 минут.&lt;/p&gt;
+    &lt;/div&gt;`
+  );
+}</pre>
+
+            <h4 class="legacy-43">API route (app/api/send-code/route.ts)</h4>
+            <pre class="legacy-45">import { sendVerificationCode } from '@/lib/email';
+import { NextResponse } from 'next/server';
+
+export async function POST(req: Request) {
+  const { email } = await req.json();
+  const code = Math.floor(100000 + Math.random() * 900000).toString();
+
+  // Сохраните code в БД для проверки позже
+  // await db.verificationCode.create({ data: { email, code, expiresAt: ... } });
+
+  await sendVerificationCode(email, code);
+  return NextResponse.json({ success: true });
+}</pre>
+
+            <h4 class="legacy-43">Python (requests)</h4>
+            <pre class="legacy-22">import requests
+
+def send_email(to, subject, html):
+    res = requests.post(
+        "http://{{ server_ip }}:3005/api/emails",
+        headers={"Authorization": "Bearer YOUR_API_KEY"},
+        json={
+            "from_email": "noreply@ваш-домен.ru",
+            "to": to,
+            "subject": subject,
+            "html": html,
+        },
+    )
+    res.raise_for_status()
+    return res.json()</pre>
+        </div>
+
+        <!-- Step 7 -->
+        <div class="legacy-27 section">
+            <h3 class="legacy-28">
+                <span class="legacy-29">7</span>
+                Обновление сервиса
+            </h3>
+            <pre class="legacy-22"># Сначала сделайте backup БД, .env и ключей (UPGRADE.md)
+# Обновите исходники из проверенного архива, не перезаписывая .env/volume
+docker compose up -d --build</pre>
+            <p class="legacy-33">Данные и настройки (<code>.env</code>, <code>data/smtp.db</code>) сохраняются между обновлениями.</p>
+        </div>
+
+        <!-- API Reference -->
+        <div class="legacy-27 section">
+            <h3 class="legacy-28">API справочник</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Метод</th>
+                        <th>URL</th>
+                        <th>Описание</th>
+                        <th>Авторизация</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><span class="badge badge-green">GET</span></td>
+                        <td><code>/api/health</code></td>
+                        <td>Статус сервиса</td>
+                        <td>—</td>
+                    </tr>
+                    <tr>
+                        <td><span class="badge badge-blue">POST</span></td>
+                        <td><code>/api/emails</code></td>
+                        <td>Отправить письмо (прямая)</td>
+                        <td>Bearer token</td>
+                    </tr>
+                    <tr>
+                        <td><span class="badge badge-blue">POST</span></td>
+                        <td><code>/api/send</code></td>
+                        <td>Отправить через шаблон</td>
+                        <td>Bearer token</td>
+                    </tr>
+                    <tr>
+                        <td><span class="badge badge-green">GET</span></td>
+                        <td><code>/api/domains</code></td>
+                        <td>Список доменов</td>
+                        <td>Bearer token</td>
+                    </tr>
+                    <tr>
+                        <td><span class="badge badge-green">GET</span></td>
+                        <td><code>/api/domains/{domain}/dns</code></td>
+                        <td>DNS записи для домена</td>
+                        <td>Bearer token</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Troubleshooting -->
+        <div class="legacy-49 section">
+            <h3 class="legacy-50">Частые проблемы</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Проблема</th>
+                        <th>Причина</th>
+                        <th>Решение</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>ERR_CONNECTION_REFUSED</td>
+                        <td>Контейнер не запущен</td>
+                        <td><code>cd ~/smtp && docker compose up -d --build</code></td>
+                    </tr>
+                    <tr>
+                        <td>422: No SMTP relay</td>
+                        <td>Домен не добавлен</td>
+                        <td>Добавьте сайт в админке или настройте RELAY_HOST в .env</td>
+                    </tr>
+                    <tr>
+                        <td>Письма в спаме</td>
+                        <td>Нет DNS записей</td>
+                        <td>Добавьте SPF и DMARC записи (см. шаг 3)</td>
+                    </tr>
+                    <tr>
+                        <td>Письма не доходят</td>
+                        <td>Порт 25 заблокирован VPS-провайдером</td>
+                        <td>Используйте relay (Yandex/Gmail) вместо прямой отправки</td>
+                    </tr>
+                    <tr>
+                        <td>401: Invalid API key</td>
+                        <td>Неверный ключ</td>
+                        <td>Проверьте API_KEY в .env на VPS</td>
+                    </tr>
+                    <tr>
+                        <td>.env: Is a directory</td>
+                        <td>Файл .env — это папка</td>
+                        <td><code>rm -rf .env && bash setup.sh</code></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}{% if template %}Редактировать шаблон{% else %}Новый шаблон{% endif %} — SMTP Admin{% endblock %}
+{% block body %}
+<div class="layout">
+    {% set active = "templates" %}
+    {% include "nav.html" %}
+    <div class="main">
+        <div class="page-header">
+            <h2>{% if template %}Редактировать: {{ template.name }}{% else %}Новый шаблон{% endif %}</h2>
+            <a href="/admin/templates" class="btn btn-ghost">← Назад</a>
+        </div>
+        <div class="legacy-80 section">
+            <form method="post" action="{% if template %}/admin/templates/{{ template.id }}/edit{% else %}/admin/templates/new{% endif %}">
+<input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Сайт</label>
+                        <select name="site_id" required>
+                            <option value="">Выберите сайт</option>
+                            {% for site in sites %}
+                            <option value="{{ site.id }}" {% if template and template.site_id == site.id %}selected{% endif %}>
+                                {{ site.name }} ({{ site.domain }})
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Название шаблона</label>
+                        <input type="text" name="name" value="{{ template.name if template else '' }}" required placeholder="Код подтверждения">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Slug (идентификатор)</label>
+                        <input type="text" name="slug" value="{{ template.slug if template else '' }}" required placeholder="verification-code">
+                    </div>
+                    <div class="form-group">
+                        <label>Тема письма</label>
+                        <input type="text" name="subject" value="{{ template.subject if template else '' }}" required placeholder="Ваш код: {{code}}">
+                    </div>
+                </div>
+                {% if template %}
+                <div class="form-group">
+                    <div class="form-check">
+                        <input type="checkbox" name="is_active" value="true" id="is_active" {% if template.is_active %}checked{% endif %}>
+                        <label for="is_active" class="legacy-63">Активен</label>
+                    </div>
+                </div>
+                {% endif %}
+                <div class="form-group">
+                    <label>HTML тело письма</label>
+                    <textarea name="body_html" required placeholder="<h1>Ваш код: {{code}}</h1>">{{ template.body_html if template else '' }}</textarea>
+                    <small class="legacy-81">
+                        Используйте переменные в формате <code>&#123;&#123;variable&#125;&#125;</code>
+                    </small>
+                </div>
+                <div class="form-group">
+                    <label>Текстовая версия (необязательно)</label>
+                    <textarea name="body_text" placeholder="Ваш код: {{code}}" class="legacy-82">{{ template.body_text if template else '' }}</textarea>
+                </div>
+                <div class="legacy-67">
+                    <button type="submit" class="btn btn-primary">{% if template %}Сохранить{% else %}Создать{% endif %}</button>
+                    <a href="/admin/templates" class="btn btn-ghost">Отмена</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

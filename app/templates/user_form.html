@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% set active = "users" %}
+{% block title %}{{ 'Изменить' if edit_user else 'Новый' }} пользователь — SMTP Admin{% endblock %}
+{% block body %}
+<div class="layout">{% include "nav.html" %}<main class="main">
+<div class="page-header">
+    <h2>{{ 'Изменить пользователя' if edit_user else 'Новый пользователь' }}</h2>
+    <a href="/admin/users" class="btn btn-ghost">← Назад</a>
+</div>
+
+{% if error %}
+<div class="legacy-84">
+    {{ error }}
+</div>
+{% endif %}
+
+<div class="section">
+    <form method="post" action="{{ '/admin/users/' ~ edit_user.id ~ '/edit' if edit_user else '/admin/users/new' }}">
+<input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+        <div class="legacy-85">
+            <label class="legacy-86">Логин</label>
+            <input type="text" name="username" value="{{ edit_user.username if edit_user else '' }}" required
+                   class="legacy-87">
+        </div>
+        <div class="legacy-85">
+            <label class="legacy-86">
+                Пароль{% if edit_user %} <span class="legacy-88">(оставьте пустым чтобы не менять)</span>{% endif %}
+            </label>
+            <input type="password" name="password" {{ 'required' if not edit_user else '' }}
+                   class="legacy-87">
+        </div>
+        <div class="legacy-85">
+            <label class="legacy-86">Роль</label>
+            <select name="role" class="legacy-87">
+                <option value="user" {{ 'selected' if (edit_user and edit_user.role == 'user') or not edit_user else '' }}>Пользователь</option>
+                <option value="admin" {{ 'selected' if edit_user and edit_user.role == 'admin' else '' }}>Админ</option>
+            </select>
+        </div>
+        <div class="form-group"><label for="smtp-domains">Разрешённые SMTP-домены</label><input id="smtp-domains" name="smtp_domains" value="{{ edit_user.smtp_domains if edit_user else '' }}" placeholder="example.com, shop.example.com"><p class="muted">Пусто — отправка через SMTP запрещена. Домен также должен быть активным сайтом.</p></div>
+        {% if edit_user %}
+        <div class="legacy-85">
+            <label class="legacy-89">
+                <input type="checkbox" name="is_active" value="true" {{ 'checked' if edit_user.is_active else '' }}
+                       class="legacy-90">
+                Активен
+            </label>
+        </div>
+        {% endif %}
+        <button type="submit" class="btn btn-primary">{{ 'Сохранить' if edit_user else 'Создать' }}</button>
+    </form>
+</div>
+</main></div>
+{% endblock %}

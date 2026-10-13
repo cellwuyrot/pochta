@@ -1,0 +1,48 @@
+# Docker does NOT honour .gitignore, so everything that must stay out of the
+# image has to be repeated here. Without this file, `COPY . .` shipped the whole
+# git history and — more importantly — the runtime data/ directory, which holds
+# the SQLite database and data/.secret_key (the session-signing key).
+
+.git
+.gitignore
+.github
+
+# Runtime state: database, auto-generated session key.
+data/
+*.db
+*.sqlite3
+
+# Local secrets. The compose file mounts the real .env at runtime instead.
+.env
+.env.*
+!.env.example
+
+# Virtualenvs and caches
+.venv/
+.venv*/
+.uvpy/
+__pycache__/
+*.py[cod]
+*$py.class
+.ruff_cache/
+.pytest_cache/
+dist/
+build/
+*.egg-info/
+
+# Tests and docs are not needed to run the service.
+tests/
+README.md
+
+# Editor noise
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Local TLS private keys must be mounted, never baked into an image.
+tls/
+*.pem
+*.key
+reports/
+backups/

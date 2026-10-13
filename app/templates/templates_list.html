@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Шаблоны — SMTP Admin{% endblock %}
+{% block body %}
+<div class="layout">
+    {% set active = "templates" %}
+    {% include "nav.html" %}
+    <div class="main">
+        <div class="page-header">
+            <h2>Шаблоны писем</h2>
+            <a href="/admin/templates/new" class="btn btn-primary">+ Новый шаблон</a>
+        </div>
+        <div class="section">
+            {% if templates %}
+            <table class="templates-table">
+                <thead>
+                    <tr>
+                        <th>Название</th>
+                        <th>Slug</th>
+                        <th>Сайт</th>
+                        <th>Тема</th>
+                        <th>Статус</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for tpl in templates %}
+                    <tr>
+                        <td><strong>{{ tpl.name }}</strong></td>
+                        <td><code class="legacy-83">{{ tpl.slug }}</code></td>
+                        <td>{{ tpl.site.name if tpl.site else '—' }}</td>
+                        <td>{{ tpl.subject[:40] }}</td>
+                        <td>
+                            {% if tpl.is_active %}
+                            <span class="badge badge-green">Активен</span>
+                            {% else %}
+                            <span class="badge badge-red">Выключен</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="actions">
+                                <a href="/admin/templates/{{ tpl.id }}/edit" class="btn btn-ghost btn-sm">Изменить</a>
+                                <form method="post" action="/admin/templates/{{ tpl.id }}/delete"
+                                      data-confirm="Удалить шаблон «{{ tpl.name }}»?" class="legacy-78">
+<input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+                                    <button type="submit" class="btn btn-danger btn-sm">Удалить</button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="empty-state">
+                <p>Нет шаблонов</p>
+                <a href="/admin/templates/new" class="legacy-79 btn btn-primary">Создать первый шаблон</a>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

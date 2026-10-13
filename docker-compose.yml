@@ -1,0 +1,22 @@
+services:
+  smtp-service:
+    build: .
+    container_name: smtp-service
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${WEB_PORT:-3005}:${WEB_PORT:-3005}"
+      - "${SMTP_HOST_PORT:-587}:2525"
+    volumes:
+      # Named volume so the DB/keys are writable by the non-root container user
+      # (a host bind mount would be owned by the host UID and break writes).
+      - smtp-data:/app/data
+      - ./.env:/app/.env:ro
+      # Place cert.pem/key.pem here, grant the container user read access.
+      - ./tls:/app/tls:ro
+    environment:
+      - TZ=Europe/Moscow
+      - WEB_HOST=0.0.0.0
+      - WEB_PORT=${WEB_PORT:-3005}
+
+volumes:
+  smtp-data:
