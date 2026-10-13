@@ -1,26 +1,27 @@
+# Python caches and packages
 __pycache__/
 *.py[cod]
 *$py.class
-.env
-data/
-*.db
-.venv/
+*.egg-info/
+.pytest_cache/
 .ruff_cache/
 dist/
-*.egg-info/
+build/
 
-# local tooling
+# Local environments and tooling
 .venv*/
 .uvpy/
 _smoke_test.py
 
-# Never publish local mailbox credentials, backups or TLS keys.
+# Secrets and runtime data
+.env
 .env.*
 !.env.example
+data/
 tls/
 backups/
 *.pem
 *.key
+*.db
 *.db-shm
 *.db-wal
-.pytest_cache/
