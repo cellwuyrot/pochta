@@ -14,6 +14,7 @@ INSECURE_DEFAULT_SECRET = "change-me-to-a-random-string"
 class Settings(BaseSettings):
     smtp_domain: str = "localhost"
     smtp_port: int = 2525
+    smtp_host_port: int = Field(default=587, ge=1, le=65535)
     web_host: str = "127.0.0.1"
     web_port: int = Field(default=3005, ge=1, le=65535)
 

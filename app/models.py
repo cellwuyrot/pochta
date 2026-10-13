@@ -112,6 +112,9 @@ class Site(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
 
+    # Explicit mailbox routing is fail-closed, even after the last account is removed.
+    mailbox_mode: Mapped[bool] = mapped_column(Boolean, default=False)
+
     # SMTP relay override per site (optional)
     relay_host: Mapped[str] = mapped_column(String(255), default="")
     relay_port: Mapped[int] = mapped_column(Integer, default=587)
@@ -130,12 +133,40 @@ class Site(Base):
     def canonical_domain(self, key, value):
         return normalize_domain(value)
 
+    mailboxes: Mapped[list["Mailbox"]] = relationship(back_populates="site", cascade="all, delete-orphan")
+
     templates: Mapped[list["EmailTemplate"]] = relationship(back_populates="site", cascade="all, delete-orphan")
     logs: Mapped[list["EmailLog"]] = relationship(back_populates="site", cascade="all, delete-orphan")
     webhooks: Mapped[list["Webhook"]] = relationship(back_populates="site", cascade="all, delete-orphan")
     providers: Mapped[list["EmailProvider"]] = relationship(
         back_populates="site", cascade="all, delete-orphan"
     )
+
+
+class Mailbox(Base):
+    """One registered external mailbox, scoped to a project/site."""
+
+    __tablename__ = "mailboxes"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    site_id: Mapped[int] = mapped_column(Integer, ForeignKey("sites.id"), nullable=False, index=True)
+    email: Mapped[str] = mapped_column(String(254), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(255), default="")
+    smtp_host: Mapped[str] = mapped_column(String(253), default="smtp.beget.com")
+    smtp_port: Mapped[int] = mapped_column(Integer, default=465)
+    use_tls: Mapped[bool] = mapped_column(Boolean, default=True)
+    password: Mapped[str] = mapped_column(SecretText, default="")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_tested_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    last_test_ok: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    last_test_error: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
+    site: Mapped["Site"] = relationship(back_populates="mailboxes")
+    __table_args__ = (__import__("sqlalchemy").UniqueConstraint("site_id", "email"),)
+
+    @validates("email")
+    def canonical_email(self, key, value):
+        from app.domain_util import normalize_email
+        return normalize_email(value.strip()).lower()
 
 
 class EmailTemplate(Base):

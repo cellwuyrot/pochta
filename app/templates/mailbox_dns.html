@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}DNS почты Beget — {{ site.name }}{% endblock %}
+{% block body %}
+<div class="layout">{% set active='sites' %}{% include 'nav.html' %}<main class="main project-cabinet">
+<p class="eyebrow">{{ site.domain }} / DNS</p>
+<div class="page-header"><h2>Почта обслуживается Beget</h2><a class="btn" href="/admin/sites/{{ site.id }}">В кабинет</a></div>
+<section class="section form-width">
+<div class="notice">Для этого проекта включена отправка через подключённые почтовые ящики Beget. Записи для самостоятельного почтового сервера сюда не подходят.</div>
+<ul><li>Оставьте MX доменов почтовых ящиков на Beget.</li><li>SPF, DKIM и DMARC настраивайте по актуальной инструкции Beget для домена каждого ящика.</li><li>Домен проекта может отличаться от домена адреса отправителя.</li><li>Не создавайте вторую SPF-запись и не публикуйте автоматически сгенерированный DKIM проекта вместо ключа Beget.</li></ul>
+<p class="mailbox-check"><a class="btn" href="https://beget.com/ru/kb/how-to/mail/nastrojka-the-bat" target="_blank" rel="noopener noreferrer">Настройки почты Beget ↗</a></p>
+</section></main></div>
+{% endblock %}

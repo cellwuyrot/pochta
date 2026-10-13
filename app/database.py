@@ -112,6 +112,7 @@ async def migrate_hardening() -> None:
     if engine.dialect.name != 'sqlite':
         raise RuntimeError('Only SQLite is supported; PostgreSQL requires a separate migration plan')
     additions = {
+        'sites': {'mailbox_mode': 'BOOLEAN NOT NULL DEFAULT 0'},
         'users': {'smtp_domains': "TEXT NOT NULL DEFAULT ''"},
         'email_logs': {'message_id': "VARCHAR(255) NOT NULL DEFAULT ''",
                        'relay_source': "VARCHAR(255) NOT NULL DEFAULT ''",
@@ -131,7 +132,7 @@ async def migrate_hardening() -> None:
             raise RuntimeError('Normalized domain collision. Resolve duplicate sites before upgrading.')
         for id_, domain in canonical:
             await conn.execute(text('UPDATE sites SET domain=:domain WHERE id=:id'), {'id': id_, 'domain': domain})
-        for table, fields in {'sites': ['relay_password', 'dkim_private_key'], 'email_providers': ['password'],
+        for table, fields in {'sites': ['relay_password', 'dkim_private_key'], 'email_providers': ['password'], 'mailboxes': ['password'],
                              'outbox_messages': ['payload'], 'email_logs': ['raw_message']}.items():
             for name in fields:
                 for row in (await conn.execute(text(f'SELECT id, {name} FROM {table}'))).fetchall():
@@ -142,3 +143,4 @@ async def migrate_hardening() -> None:
         await conn.execute(text("UPDATE email_logs SET status='accepted' WHERE status='sent'"))
         await conn.execute(text("UPDATE email_logs SET status='failed' WHERE status='error'"))
         await conn.execute(text('INSERT OR IGNORE INTO schema_migrations(version) VALUES(1)'))
+        await conn.execute(text('INSERT OR IGNORE INTO schema_migrations(version) VALUES(2)'))

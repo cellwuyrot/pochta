@@ -15,6 +15,8 @@ from app.routes_admin import router as admin_router
 from app.routes_admin_providers import router as admin_providers_router
 from app.routes_admin_webhooks import router as admin_webhooks_router
 from app.routes_api import router as api_router
+from app.routes_mailboxes import admin_router as mailbox_admin_router
+from app.routes_mailboxes import api_router as mailbox_api_router
 from app.routes_outbox import router as outbox_router
 from app.routes_providers import router as providers_router
 from app.routes_webhooks import router as webhooks_router
@@ -79,6 +81,8 @@ app.include_router(providers_router)
 app.include_router(admin_router)
 app.include_router(admin_providers_router)
 app.include_router(admin_webhooks_router)
+app.include_router(mailbox_admin_router)
+app.include_router(mailbox_api_router)
 
 
 @app.get("/")

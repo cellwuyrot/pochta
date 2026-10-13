@@ -243,7 +243,15 @@ async def site_update(
         raise HTTPException(status_code=404)
     site.name = name
     site.domain = _clean_domain(domain)
-    site.sender_email = sender_email
+    from app.domain_util import normalize_email
+    try:
+        sender_email = normalize_email(sender_email)
+        if site.mailbox_mode:
+            from app.mailboxes import validate_sender
+            await validate_sender(db, site, sender_email)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    site.sender_email = sender_email.lower() if site.mailbox_mode else sender_email
     site.sender_name = sender_name
     site.is_active = is_active
     site.relay_host = relay_host
@@ -264,7 +272,15 @@ async def site_delete(
     db: AsyncSession = Depends(get_db),
     admin: str = Depends(get_current_admin),
 ):
-    await db.execute(delete(Site).where(Site.id == site_id))
+    # ORM cascades remove mailbox secrets and dependent records; bulk delete
+    # would bypass cascades and leave orphaned credentials in SQLite.
+    site = await db.get(Site, site_id)
+    if not site:
+        raise HTTPException(404)
+    from app.models import DeliveryAttempt, OutboxMessage
+    await db.execute(delete(DeliveryAttempt).where(DeliveryAttempt.site_id == site_id))
+    await db.execute(delete(OutboxMessage).where(OutboxMessage.site_id == site_id))
+    await db.delete(site)
     await db.commit()
     return RedirectResponse(url="/admin/sites", status_code=status.HTTP_302_FOUND)
 
@@ -308,6 +324,8 @@ async def site_dns(
     site = (await db.execute(select(Site).where(Site.id == site_id))).scalar_one_or_none()
     if not site:
         raise HTTPException(status_code=404)
+    if site.mailbox_mode:
+        return templates.TemplateResponse(request, "mailbox_dns.html", {"admin": admin, "site": site})
     domain = _clean_domain(site.domain)
     server_ip = await asyncio.to_thread(resolve_server_ip)
     smtp_hostname = settings.smtp_domain or ""
@@ -462,6 +480,9 @@ async def site_dns_verify(
     site = (await db.execute(select(Site).where(Site.id == site_id))).scalar_one_or_none()
     if not site:
         raise HTTPException(status_code=404)
+    if site.mailbox_mode:
+        return JSONResponse({"domain": site.domain, "all_verified": False, "records": {},
+                             "note": "Mailboxes are hosted by Beget; keep Beget MX and configure DNS there."})
     domain = _clean_domain(site.domain)
     server_ip = await asyncio.to_thread(resolve_server_ip)
     results = await asyncio.to_thread(

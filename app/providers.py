@@ -17,9 +17,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.mailboxes import validate_sender
 from app.models import DeliveryAttempt, EmailProvider, Site
 from app.smtp_client import IMPLICIT_TLS_PORT, send_email
-from app.smtp_transport import SafeSMTP, SafeSMTP_SSL
+from app.smtp_transport import SafeSMTP, SafeSMTP_SSL, redact_smtp_error
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,12 @@ class Preset:
 
 
 PRESETS: dict[str, Preset] = {
+    "beget": Preset(
+        name="beget", label="Beget", host="smtp.beget.com", port=465,
+        username_hint="Полный адрес почтового ящика Beget; пароль именно от ящика",
+        docs_url="https://beget.com/ru/kb/how-to/mail/nastrojka-the-bat",
+        notes="SSL/TLS на порту 465. Для нескольких ящиков используйте кабинет проекта.",
+    ),
     "postmark": Preset(
         name="postmark",
         label="Postmark",
@@ -239,6 +246,15 @@ async def resolve_relay_targets(db: AsyncSession, site: Site) -> list[RelayTarge
     direct MX delivery, exactly as before this feature existed.
     """
     targets: list[RelayTarget] = []
+    if site.mailbox_mode:
+        try:
+            mailbox = await validate_sender(db, site, site.sender_email)
+        except ValueError:
+            return []
+        return [RelayTarget(
+            label=f"mailbox:{mailbox.email}", host=mailbox.smtp_host, port=mailbox.smtp_port,
+            username=mailbox.email, password=mailbox.password, use_tls=mailbox.use_tls,
+        )]
 
     providers = (
         await db.execute(
@@ -300,7 +316,23 @@ async def send_via_providers(db: AsyncSession, site: Site, **send_kwargs) -> tup
     makes ``send_email`` fall back to direct MX delivery — the behaviour before
     providers existed.
     """
-    targets = await resolve_relay_targets(db, site)
+    # A mailbox account is an identity, not a standby relay. Never fall back to
+    # another mailbox, a global relay or direct MX when this account fails.
+    try:
+        mailbox = await validate_sender(db, site, send_kwargs.get("from_email") or site.sender_email)
+    except ValueError as exc:
+        return False, f"permanent: {exc}", "mailbox-policy"
+    if mailbox:
+        send_kwargs["from_email"] = mailbox.email
+        send_kwargs["from_name"] = mailbox.display_name or site.sender_name
+        # Beget manages DKIM; the project's generated key is not published there.
+        send_kwargs["dkim_private_key"] = ""
+        targets = [RelayTarget(
+            label=f"mailbox:{mailbox.email}", host=mailbox.smtp_host, port=mailbox.smtp_port,
+            username=mailbox.email, password=mailbox.password, use_tls=mailbox.use_tls,
+        )]
+    else:
+        targets = await resolve_relay_targets(db, site)
     message_id = send_kwargs.setdefault("message_id", str(uuid.uuid4()))
     def record(source, ok, error):
         db.add(DeliveryAttempt(message_id=message_id, site_id=site.id,
@@ -328,8 +360,7 @@ async def send_via_providers(db: AsyncSession, site: Site, **send_kwargs) -> tup
             relay_use_tls=target.use_tls,
             **send_kwargs,
         )
-        if target.password:
-            error = error.replace(target.password, "[redacted]")
+        error = redact_smtp_error(error, target.username, target.password)
         record(target.label, success, error)
         if success:
             if failures:

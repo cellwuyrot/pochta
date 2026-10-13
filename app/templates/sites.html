@@ -15,7 +15,7 @@
         <div class="legacy-68 section">
             <div class="legacy-69">
                 <div>
-                    <h3 class="legacy-70">{{ site.name }}</h3>
+                    <h3 class="legacy-70"><a href="/admin/sites/{{ site.id }}">{{ site.name }}</a></h3>
                     <span class="legacy-71">{{ site.domain }}</span>
                     {% if site.relay_host %}
                     <span class="legacy-72 badge badge-blue">{{ site.relay_host }}</span>
@@ -40,6 +40,7 @@
             </div>
 
             <div class="legacy-77">
+                <a href="/admin/sites/{{ site.id }}" class="btn btn-primary btn-sm">Кабинет / Почты</a>
                 <a href="/admin/sites/{{ site.id }}/dns" class="legacy-42 btn btn-ghost btn-sm">DNS</a>
                 <a href="/admin/sites/{{ site.id }}/edit" class="btn btn-ghost btn-sm">Изменить</a>
                 <form method="post" action="/admin/sites/{{ site.id }}/regenerate-key" class="legacy-78">

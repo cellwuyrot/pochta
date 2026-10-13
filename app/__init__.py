@@ -6,4 +6,4 @@ report it. Previously the version was written out in three places and two of
 them disagreed.
 """
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
