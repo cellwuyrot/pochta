@@ -22,8 +22,9 @@ from app.api_auth import (
 from app.config import settings
 from app.database import get_db
 from app.domain_util import normalize_domain, normalize_email
-from app.models import DeliveryAttempt, EmailLog, EmailTemplate, Site
-from app.providers import send_via_providers
+from app.mailboxes import validate_sender
+from app.models import DeliveryAttempt, EmailLog, EmailTemplate, Mailbox, Site
+from app.providers import resolve_relay_targets, send_via_providers
 from app.ratelimit import RateLimiter
 from app.webhook_service import enqueue_event
 
@@ -91,7 +92,13 @@ class TemplateSendRequest(BaseModel):
     site_domain: str
     template_slug: str
     to_email: str
+    from_email: str | None = None
     variables: dict[str, str] = Field(default_factory=dict, max_length=100)
+
+    @field_validator("from_email")
+    @classmethod
+    def from_valid(cls, value):
+        return normalize_email(value) if value else None
 
     @field_validator("site_domain")
     @classmethod
@@ -180,6 +187,7 @@ async def send_email_direct(
     req: EmailSendRequest,
     db: AsyncSession = Depends(get_db),
     auth_token: str = Depends(verify_api_key),
+    site_domain: str | None = None,
 ):
     """Send email directly (Resend-like API).
 
@@ -201,32 +209,39 @@ async def send_email_direct(
     recipients = req.to if isinstance(req.to, list) else [req.to]
     from_domain = req.from_email.split("@")[-1].lower() if "@" in req.from_email else ""
 
-    # 1) Resolve the site this key is allowed to send for.
+    # Site keys explicitly scope mailbox identities, even if a project's domain
+    # differs from the mailbox domain. Global callers can select ?site_domain=.
+    if site_domain:
+        try:
+            site_domain = normalize_domain(site_domain)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
     site = await resolve_site_by_key(db, auth_token)
-
     if site:
-        # Per-site key: the From domain must match this site (anti-spoofing).
-        if from_domain and from_domain != site.domain.lower():
-            raise HTTPException(
-                status_code=403,
-                detail=f"This API key may only send from @{site.domain}, not @{from_domain}.",
-            )
+        if site_domain and site_domain != site.domain:
+            raise HTTPException(403, "API key is scoped to a different project")
     elif is_global_key(auth_token):
-        # Global admin key: allow sending only as a configured, active domain.
-        site = (
-            await db.execute(select(Site).where(Site.domain == from_domain, Site.is_active.is_(True)))
-        ).scalar_one_or_none()
+        if site_domain:
+            site = (await db.execute(select(Site).where(
+                Site.domain == site_domain, Site.is_active.is_(True)
+            ))).scalar_one_or_none()
+        else:
+            candidates = (await db.execute(select(Site).outerjoin(Mailbox).where(
+                Site.is_active.is_(True),
+                ((Site.mailbox_mode.is_(True) & (Mailbox.email == req.from_email.lower()) & Mailbox.is_active.is_(True))
+                 | (Site.mailbox_mode.is_(False) & (Site.domain == from_domain))),
+            ).distinct())).scalars().all()
+            if len(candidates) > 1:
+                raise HTTPException(400, "Mailbox belongs to multiple projects; add ?site_domain=example.com")
+            site = candidates[0] if candidates else None
         if not site:
-            raise HTTPException(
-                status_code=403,
-                detail=f"No active site configured for @{from_domain}. Add it under /admin → Sites first.",
-            )
+            raise HTTPException(403, "No active project configured for this sender")
     else:
-        # Token is neither a valid site key nor the global key.
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid API key. Use the key from your site's admin panel (Сайты → DNS).",
-        )
+        raise HTTPException(401, "Invalid API key")
+    try:
+        await validate_sender(db, site, req.from_email)
+    except ValueError as exc:
+        raise HTTPException(403, str(exc)) from exc
 
     email_id = str(uuid.uuid4())
     errors = []
@@ -343,6 +358,12 @@ async def api_send_email(
             "Create the template at /admin → Templates.",
         )
 
+    sender = req.from_email or site.sender_email
+    try:
+        await validate_sender(db, site, sender)
+    except ValueError as exc:
+        raise HTTPException(403, str(exc)) from exc
+
     body_html = template.body_html
     body_text = template.body_text
     subject = template.subject
@@ -354,7 +375,7 @@ async def api_send_email(
 
     email_id = str(uuid.uuid4())
     try:
-        EmailSendRequest(from_email=site.sender_email, to=req.to_email, subject=subject, html=body_html, text=body_text)
+        EmailSendRequest(from_email=sender, to=req.to_email, subject=subject, html=body_html, text=body_text)
     except ValueError as exc:
         raise HTTPException(422, "Rendered template exceeds limits or contains invalid headers") from exc
     # Same provider resolution and off-loop dispatch as /api/emails.
@@ -366,7 +387,7 @@ async def api_send_email(
         subject=subject,
         body_html=body_html,
         body_text=body_text,
-        from_email=site.sender_email,
+        from_email=sender,
         from_name=site.sender_name,
         dkim_domain=site.domain,
         dkim_selector=site.dkim_selector,
@@ -376,7 +397,7 @@ async def api_send_email(
     log_entry = EmailLog(
         site_id=site.id,
         direction="outgoing",
-        sender=site.sender_email,
+        sender=sender,
         recipient=req.to_email,
         subject=subject,
         body_preview=_log_body_preview(body_html, body_text),
@@ -397,7 +418,7 @@ async def api_send_email(
         {
             "site_domain": site.domain,
             "template_slug": req.template_slug,
-            "from": site.sender_email,
+            "from": sender,
             "to": req.to_email,
             "subject": subject,
             "status": "accepted" if success else "failed",
@@ -449,7 +470,7 @@ async def whoami(
             sender_email=site.sender_email,
             sender_name=site.sender_name,
             is_active=site.is_active,
-            has_relay=bool(site.relay_host),
+            has_relay=bool(await resolve_relay_targets(db, site)),
             dkim_configured=bool(site.dkim_private_key),
             created_at=site.created_at,
         ),
@@ -480,7 +501,7 @@ async def list_domains(
             "name": s.name,
             "sender_email": s.sender_email,
             "is_active": s.is_active,
-            "has_relay": bool(s.relay_host),
+            "has_relay": bool(await resolve_relay_targets(db, s)),
         }
         for s in sites
     ]
@@ -502,6 +523,13 @@ async def domain_dns_info(
 
     from app.dkim_util import dkim_dns_value
     from app.net_util import resolve_server_ip
+
+    domain = normalize_domain(domain)
+    site = (await db.execute(select(Site).where(Site.domain == domain))).scalar_one_or_none()
+    if site and site.mailbox_mode:
+        return {"domain": domain, "records": [], "managed_by": "beget",
+                "note": "Keep Beget MX. Configure SPF/DKIM/DMARC for each mailbox domain in Beget; "
+                        "the project domain may differ. Direct-server DNS records do not apply."}
 
     # Blocking DNS lookup — keep it off the event loop.
     server_ip = await asyncio.to_thread(resolve_server_ip)

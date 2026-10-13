@@ -1,0 +1,1638 @@
+--- a/.gitignore
++++ b/.gitignore
+@@ -13,3 +13,14 @@
+ .venv*/
+ .uvpy/
+ _smoke_test.py
++
++# Never publish local mailbox credentials, backups or TLS keys.
++.env.*
++!.env.example
++tls/
++backups/
++*.pem
++*.key
++*.db-shm
++*.db-wal
++.pytest_cache/
+--- a/BEGET_UPDATE.md
++++ b/BEGET_UPDATE.md
+@@ -0,0 +1,135 @@
++# Кабинет проекта и несколько почтовых ящиков Beget — версия 2.1.0
++
++Обновление подготовлено по исходному архиву smtp.zip. Это обновление файлов кода, не подключение к вашему серверу или GitHub. Если после исходного архива вы меняли Python-код/шаблоны, сначала сравните изменения с `reports/beget-changes.diff` и своей версией. Обновление заменяет перечисленные в манифесте файлы.
++
++## Что добавлено
++
++- **Сайты → Кабинет / Почты**: отдельный кабинет каждого проекта.
++- Несколько зарегистрированных почтовых ящиков на один проект, каждый со своим адресом, именем и SMTP-паролем.
++- Добавление, редактирование, отключение, удаление подключения и выбор адреса по умолчанию.
++- Проверка SSL/TLS-подключения и SMTP-авторизации. Эта проверка не отправляет письмо и не гарантирует доставку.
++- Форма отправки с выбором активного адреса; письмо сохраняется в существующую долговечную очередь.
++- Правильный выбор аккаунта по `from_email` при отправке через API, шаблоны и SMTP.
++- Ящики Beget используют smtp.beget.com:465, SSL/TLS, логин — полный email. Данные пароля относятся к ящику, не к панели Beget.
++- Пароли шифруются существующим SecretText/Fernet; не возвращаются в API/HTML. SMTP-ошибки очищаются от пароля и AUTH-кодировок перед логированием.
++- Изоляция по проекту: API-ключ одного сайта не использует ящики другого.
++- Обновлены DNS-подсказки: при использовании ящиков Beget сервис не предлагает заменить MX/DKIM на свои.
++- Исправлено принятие SMTP_HOST_PORT из .env.
++
++## Границы этой версии
++
++Ящики создаются в Beget вручную, а здесь подключаются уже существующие. Создание/удаление ящиков через Beget API не реализовано. Удаление подключения НЕ удаляет ящик в Beget.
++
++**IMAP-синхронизации и интерфейса чтения входящих писем в этом обновлении нет.** Входящие остаются в Beget; в кабинете есть ссылка на web.beget.email. Сервис не становится полноценным веб-почтовым клиентом. Копирование исходящих в папку «Отправленные» через IMAP тоже не реализовано.
++
++Кабинеты доступны существующим администраторам сервиса. Отдельные учётные записи владельцев проектов с разграничением прав кабинета не добавлены; API-ключи проектов изолированы.
++
++## Как обновить сервер
++
++Предполагается, что проект расположен в /root/pochta и называется smtp-service в Docker Compose. Архив обновления не содержит .env, tls/, data/, Dockerfile или docker-compose.yml и не заменяет ваши сертификаты, Compose-порты или proxy-настройки.
++
++1. Сохраните архив `smtp-beget-update.zip` на сервере как `/root/smtp-beget-update.zip`.
++2. Если команда `unzip` отсутствует, установите её для своей ОС.
++3. Выполните команды ниже. При ошибке резервного копирования НЕ продолжайте распаковку.
++
++```bash
++set -e
++cd /root/pochta
++unzip -p /root/smtp-beget-update.zip tools/backup_before_beget.sh > /root/backup_before_beget.sh
++bash /root/backup_before_beget.sh /root/pochta
++unzip -o /root/smtp-beget-update.zip -d /root/pochta
++docker compose up -d --build --force-recreate smtp-service
++sleep 10
++docker compose ps
++docker compose logs --since=2m --tail=80 smtp-service
++curl -f https://smtp.trioz.ru/api/health
++```
++
++Скрипт создаёт закрытую папку `/root/pochta-backups/beget-<дата>-<суффикс>`:
++
++- `project-before.tar.gz`: исходные файлы, .env и TLS-файлы, если они находятся в каталоге проекта;
++- `data/`: остановленный снимок тома /app/data, включая SQLite, `.encryption_key` и `.secret_key`.
++
++Резервная копия содержит секреты. Не загружайте её в GitHub и не отправляйте публично. При использовании внешних путей сертификатов/ключей или других томов сохраните их отдельно. Не используйте `docker compose down -v` и не удаляйте smtp-data.
++
++После резервного копирования сервис остаётся остановленным до команды запуска. Если отменили обновление и код не меняли, выполните `docker compose up -d smtp-service`.
++
++При первом запуске SQLAlchemy создаёт таблицу mailboxes, миграция добавляет sites.mailbox_mode и фиксирует версию схемы 2. Имеющиеся сайты, пользователи, API-ключи, шаблоны и очередь сохраняются. Не удаляйте существующий ключ шифрования: он нужен и для старых, и для новых секретов.
++
++На случай отката сохраните точный путь копии: остановите сервис, восстановите согласованный исходный код и содержимое тома /app/data вместе с ключами из этой копии, затем пересоберите образ. Если после обновления уже были новые письма/ящики, откат снимка потеряет эти новые данные — сначала сделайте дополнительную копию.
++
++## Как пользоваться
++
++1. Откройте https://smtp.trioz.ru/admin/sites.
++2. Создайте/выберите проекты `trioz.ru` и `buisness.trioz.ru` как две отдельные записи. Написание buisness сохранено как в запросе.
++3. Нажмите «Кабинет / Почты» у нужного проекта.
++4. «Добавить почту»: полный адрес уже созданного в Beget ящика, имя и пароль ящика.
++5. Нажмите «Проверить». При 535 проверьте пароль именно ящика и доступность аккаунта в Beget.
++6. Повторите для всех ящиков; выберите адрес по умолчанию.
++7. В форме отправки выберите «От кого» и отправьте новое тестовое письмо на свой внешний адрес. Посмотрите историю попыток и папки получателя.
++
++Пример структуры (адреса условные, не создаются автоматически):
++
++```text
++Проект trioz.ru
++  info@trioz.ru
++  sales@trioz.ru
++
++Проект buisness.trioz.ru
++  business@trioz.ru
++  support@buisness.trioz.ru
++```
++
++Домен проекта может отличаться от домена подключённого ящика. Адрес должен реально существовать в Beget. Один и тот же ящик можно вручную подключить к нескольким проектам, но каждого проектного API-ключа хватает только на его собственное подключение.
++
++Первый активный ящик становится отправителем по умолчанию. Отключение/удаление адреса по умолчанию выбирает следующий активный ящик. Если активных адресов нет, отправка блокируется. После подключения первого ящика включается mailbox_mode: провайдеры/legacy relay и Direct MX больше не используются для этого проекта, даже если все ящики удалены. Неудача одного аккаунта не приводит к отправке под другим аккаунтом.
++
++SMTP-сервер Beget должен быть доступен с VPS на исходящем TCP-порту 465. Учитывайте лимиты и правила Beget; это не система обхода лимитов или сервис массовых рассылок. Accepted означает принятие сервером, не попадание в почтовый ящик.
++
++## Входящая почта и DNS
++
++**MX доменов почтовых ящиков должны остаться на Beget.** Если раньше вы заменили их на smtp.trioz.ru по инструкции самостоятельного входящего SMTP, восстановите MX по актуальным настройкам панели Beget. Не угадывайте значения MX и не смешивайте два разных почтовых хостинга.
++
++A-запись smtp.trioz.ru по-прежнему указывает на VPS для HTTPS-панели и SMTP-приёма от ваших приложений. SPF/DKIM/DMARC настраиваются по инструкции Beget для домена email, который может отличаться от домена сайта. Не создавайте две SPF-записи. Проектная DKIM-подпись при маршруте через зарегистрированный ящик не добавляется: подпись/доменная настройка обслуживаются Beget.
++
++## API: несколько адресов
++
++- `GET /api/mailboxes`: список активных адресов своего проекта и адрес по умолчанию. Паролей в ответе нет.
++- `POST /api/outbox`: сохраняет задание и возвращает 202/queued. Выбор адреса — `from_email`.
++- `GET /api/outbox/{id}`: состояние задания своего проекта.
++- `POST /api/emails`: существующий синхронный API, теперь тоже использует аккаунт выбранного адреса.
++- `POST /api/send`: для шаблонов добавлено необязательное `from_email`. Без него используется адрес по умолчанию.
++
++Для глобального ключа укажите проект через `?site_domain=buisness.trioz.ru`. В синхронном `/api/emails` неоднозначный общий ящик требует явного site_domain. Предпочитайте API-ключ конкретного проекта.
++
++Тело запроса в /api/outbox, с API-ключом выбранного проекта в Authorization: Bearer:
++
++```json
++{
++  "from_email": "sales@trioz.ru",
++  "to": "your-test-address@gmail.com",
++  "subject": "Проверка Beget",
++  "text": "Письмо через выбранный почтовый ящик"
++}
++```
++
++SMTP-клиенты по-прежнему авторизуются учётной записью пользователя ЭТОГО сервиса через STARTTLS, а не паролем Beget. В разрешениях smtp_domains такого пользователя указываются домены проектов. Заголовок From и envelope sender должны совпадать с зарегистрированным ящиком. Если одинаковый sender подходит нескольким разрешённым проектам, SMTP отвергает неоднозначность — используйте проектный API-ключ или ограничьте пользователя одним проектом.
++
++## Безопасность и старые очереди
++
++- Ключ Fernet живёт вне SQLite в /app/data/.encryption_key либо задаётся DATA_ENCRYPTION_KEYS. Защищайте и резервируйте его вместе с БД.
++- Пароли меняйте через HTTPS-кабинет; не записывайте их в репозиторий/логи и не присылайте в чат.
++- Старая очередь при обработке заново проверяет активность сайта и точный зарегистрированный адрес. Старое письмо от неподключённого адреса завершится failed, а не отправится через чужой ящик.
++- unknown/uncertain автоматически не повторяется. В случае старых 550-писем сначала проверьте историю; после исправления маршрута отправьте новое тестовое сообщение.
++- При изменении пароля в Beget обновите его в кабинете проекта.
++
++## Проверки и ограничения тестирования
++
++В локальной среде: 231 тест прошёл, включая 26 новых проверок почтовых ящиков; Ruff без ошибок; синтаксис скрипта резервирования проверен. Проверены маршрутизация двух ящиков, межпроектная изоляция, миграция, сохранение секретов, отсутствие fallback, очередь, CSRF/Origin, SMTP From, очистка ошибок и шаблонные отправки.
++
++Интерфейс проверен на desktop 1440px и mobile 390px, включая пустой кабинет, ошибки, редактирование, DNS и меню. Локальные интерактивные сценарии создают только тестовые аккаунты и очередь, без внешней отправки.
++
++Реальная авторизация в вашем Beget, отправка в Gmail и сборка Docker на вашем VPS НЕ выполнялись: у нас нет доступа к вашему серверу и почтовым учётным данным. В среде подготовки нет Docker CLI, поэтому резервный скрипт проверен синтаксически, но не запускался с реальным Docker-томом. После установки обязательна проверка «Проверить» и одно новое тестовое письмо.
++
++Официальные настройки Beget: https://beget.com/ru/kb/how-to/mail/nastrojka-the-bat
++Веб-почта/управление ящиками: https://beget.com/en/kb/manual/mail
+--- a/README.md
++++ b/README.md
+@@ -1,3 +1,7 @@
++> **Версия 2.1.0: кабинет проекта и несколько почтовых ящиков Beget.**
++> Инструкция установки и использования: [BEGET_UPDATE.md](BEGET_UPDATE.md).
++> Для проекта с подключёнными ящиками следуйте DNS-инструкции Beget; рекомендации самостоятельного MX ниже относятся только к прежнему режиму.
++
+ > **Обновлённая версия:** сначала прочитайте [UPGRADE.md](UPGRADE.md). Безопасные defaults и поведение SMTP изменены: relay-only, STARTTLS AUTH, явные SMTP-домены аккаунта, optional inbound, encrypted secrets, новая очередь. Ниже сохранена историческая справка; при расхождении приоритет у UPGRADE.md и .env.example. Desktop/mobile QA выполнена на изолированной тестовой БД; результаты — reports/VISUAL_QA.md.
+ 
+ # SMTP Service
+--- a/app/__init__.py
++++ b/app/__init__.py
+@@ -6,4 +6,4 @@
+ them disagreed.
+ """
+ 
+-__version__ = "2.0.0"
++__version__ = "2.1.0"
+--- a/app/config.py
++++ b/app/config.py
+@@ -14,6 +14,7 @@
+ class Settings(BaseSettings):
+     smtp_domain: str = "localhost"
+     smtp_port: int = 2525
++    smtp_host_port: int = Field(default=587, ge=1, le=65535)
+     web_host: str = "127.0.0.1"
+     web_port: int = Field(default=3005, ge=1, le=65535)
+ 
+--- a/app/database.py
++++ b/app/database.py
+@@ -112,6 +112,7 @@
+     if engine.dialect.name != 'sqlite':
+         raise RuntimeError('Only SQLite is supported; PostgreSQL requires a separate migration plan')
+     additions = {
++        'sites': {'mailbox_mode': 'BOOLEAN NOT NULL DEFAULT 0'},
+         'users': {'smtp_domains': "TEXT NOT NULL DEFAULT ''"},
+         'email_logs': {'message_id': "VARCHAR(255) NOT NULL DEFAULT ''",
+                        'relay_source': "VARCHAR(255) NOT NULL DEFAULT ''",
+@@ -131,7 +132,7 @@
+             raise RuntimeError('Normalized domain collision. Resolve duplicate sites before upgrading.')
+         for id_, domain in canonical:
+             await conn.execute(text('UPDATE sites SET domain=:domain WHERE id=:id'), {'id': id_, 'domain': domain})
+-        for table, fields in {'sites': ['relay_password', 'dkim_private_key'], 'email_providers': ['password'],
++        for table, fields in {'sites': ['relay_password', 'dkim_private_key'], 'email_providers': ['password'], 'mailboxes': ['password'],
+                              'outbox_messages': ['payload'], 'email_logs': ['raw_message']}.items():
+             for name in fields:
+                 for row in (await conn.execute(text(f'SELECT id, {name} FROM {table}'))).fetchall():
+@@ -142,3 +143,4 @@
+         await conn.execute(text("UPDATE email_logs SET status='accepted' WHERE status='sent'"))
+         await conn.execute(text("UPDATE email_logs SET status='failed' WHERE status='error'"))
+         await conn.execute(text('INSERT OR IGNORE INTO schema_migrations(version) VALUES(1)'))
++        await conn.execute(text('INSERT OR IGNORE INTO schema_migrations(version) VALUES(2)'))
+--- a/app/mailboxes.py
++++ b/app/mailboxes.py
+@@ -0,0 +1,64 @@
++"""Project-scoped sender identities. A mailbox never fails over to another account."""
++
++from sqlalchemy import select
++
++from app.domain_util import normalize_email
++from app.models import Mailbox, Site
++
++
++async def validate_sender(db, site: Site, sender: str) -> Mailbox | None:
++    """Validate on admission AND delivery, so disabling an account affects queued jobs."""
++    if not site.is_active:
++        raise ValueError("Project is inactive")
++    sender = normalize_email(sender)
++    if not site.mailbox_mode:
++        if sender.rsplit("@", 1)[-1] != site.domain:
++            raise ValueError("Sender domain not authorized for this project")
++        return None
++    mailbox = (await db.execute(select(Mailbox).where(
++        Mailbox.site_id == site.id, Mailbox.email == sender.lower(),
++    ))).scalar_one_or_none()
++    if not mailbox or not mailbox.is_active:
++        raise ValueError("Sender mailbox is not registered or is inactive in this project")
++    if not mailbox.password:
++        raise ValueError("Sender mailbox has no SMTP password")
++    return mailbox
++
++
++async def smtp_project(db, sender: str, allowed_domains: list[str]) -> Site:
++    """SMTP user scopes name PROJECT domains, not arbitrary sender domains."""
++    projects = (await db.execute(select(Site).where(
++        Site.domain.in_(allowed_domains), Site.is_active.is_(True),
++    ))).scalars().all()
++    matches = []
++    for site in projects:
++        try:
++            await validate_sender(db, site, sender)
++        except ValueError:
++            continue
++        matches.append(site)
++    if len(matches) != 1:
++        raise ValueError("Sender not allowed or ambiguous; use a project-scoped API key")
++    return matches[0]
++
++
++def public_mailbox(row: Mailbox, default_email: str = "") -> dict:
++    """Never serialise the ORM password to a template or response."""
++    return {
++        "id": row.id, "email": row.email, "display_name": row.display_name,
++        "smtp_host": row.smtp_host, "smtp_port": row.smtp_port,
++        "is_active": row.is_active, "has_password": bool(row.password),
++        "is_default": row.email == default_email.lower(),
++        "last_tested_at": row.last_tested_at, "last_test_ok": row.last_test_ok,
++        "last_test_error": row.last_test_error,
++    }
++
++
++async def reconcile_default(db, site: Site):
++    accounts = (await db.execute(select(Mailbox).where(
++        Mailbox.site_id == site.id, Mailbox.is_active.is_(True),
++    ).order_by(Mailbox.id))).scalars().all()
++    chosen = next((m for m in accounts if m.email == site.sender_email.lower()), None)
++    chosen = chosen or (accounts[0] if accounts else None)
++    site.sender_email = chosen.email if chosen else ""
++    site.sender_name = chosen.display_name if chosen else ""
+--- a/app/main.py
++++ b/app/main.py
+@@ -15,6 +15,8 @@
+ from app.routes_admin_providers import router as admin_providers_router
+ from app.routes_admin_webhooks import router as admin_webhooks_router
+ from app.routes_api import router as api_router
++from app.routes_mailboxes import admin_router as mailbox_admin_router
++from app.routes_mailboxes import api_router as mailbox_api_router
+ from app.routes_outbox import router as outbox_router
+ from app.routes_providers import router as providers_router
+ from app.routes_webhooks import router as webhooks_router
+@@ -79,6 +81,8 @@
+ app.include_router(admin_router)
+ app.include_router(admin_providers_router)
+ app.include_router(admin_webhooks_router)
++app.include_router(mailbox_admin_router)
++app.include_router(mailbox_api_router)
+ 
+ 
+ @app.get("/")
+--- a/app/models.py
++++ b/app/models.py
+@@ -112,6 +112,9 @@
+     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
+ 
++    # Explicit mailbox routing is fail-closed, even after the last account is removed.
++    mailbox_mode: Mapped[bool] = mapped_column(Boolean, default=False)
++
+     # SMTP relay override per site (optional)
+     relay_host: Mapped[str] = mapped_column(String(255), default="")
+     relay_port: Mapped[int] = mapped_column(Integer, default=587)
+@@ -130,12 +133,40 @@
+     def canonical_domain(self, key, value):
+         return normalize_domain(value)
+ 
++    mailboxes: Mapped[list["Mailbox"]] = relationship(back_populates="site", cascade="all, delete-orphan")
++
+     templates: Mapped[list["EmailTemplate"]] = relationship(back_populates="site", cascade="all, delete-orphan")
+     logs: Mapped[list["EmailLog"]] = relationship(back_populates="site", cascade="all, delete-orphan")
+     webhooks: Mapped[list["Webhook"]] = relationship(back_populates="site", cascade="all, delete-orphan")
+     providers: Mapped[list["EmailProvider"]] = relationship(
+         back_populates="site", cascade="all, delete-orphan"
+     )
++
++
++class Mailbox(Base):
++    """One registered external mailbox, scoped to a project/site."""
++
++    __tablename__ = "mailboxes"
++    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
++    site_id: Mapped[int] = mapped_column(Integer, ForeignKey("sites.id"), nullable=False, index=True)
++    email: Mapped[str] = mapped_column(String(254), nullable=False)
++    display_name: Mapped[str] = mapped_column(String(255), default="")
++    smtp_host: Mapped[str] = mapped_column(String(253), default="smtp.beget.com")
++    smtp_port: Mapped[int] = mapped_column(Integer, default=465)
++    use_tls: Mapped[bool] = mapped_column(Boolean, default=True)
++    password: Mapped[str] = mapped_column(SecretText, default="")
++    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
++    last_tested_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
++    last_test_ok: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
++    last_test_error: Mapped[str] = mapped_column(Text, default="")
++    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
++    site: Mapped["Site"] = relationship(back_populates="mailboxes")
++    __table_args__ = (__import__("sqlalchemy").UniqueConstraint("site_id", "email"),)
++
++    @validates("email")
++    def canonical_email(self, key, value):
++        from app.domain_util import normalize_email
++        return normalize_email(value.strip()).lower()
+ 
+ 
+ class EmailTemplate(Base):
+--- a/app/providers.py
++++ b/app/providers.py
+@@ -17,9 +17,10 @@
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
+ from app.config import settings
++from app.mailboxes import validate_sender
+ from app.models import DeliveryAttempt, EmailProvider, Site
+ from app.smtp_client import IMPLICIT_TLS_PORT, send_email
+-from app.smtp_transport import SafeSMTP, SafeSMTP_SSL
++from app.smtp_transport import SafeSMTP, SafeSMTP_SSL, redact_smtp_error
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -51,6 +52,12 @@
+ 
+ 
+ PRESETS: dict[str, Preset] = {
++    "beget": Preset(
++        name="beget", label="Beget", host="smtp.beget.com", port=465,
++        username_hint="Полный адрес почтового ящика Beget; пароль именно от ящика",
++        docs_url="https://beget.com/ru/kb/how-to/mail/nastrojka-the-bat",
++        notes="SSL/TLS на порту 465. Для нескольких ящиков используйте кабинет проекта.",
++    ),
+     "postmark": Preset(
+         name="postmark",
+         label="Postmark",
+@@ -239,6 +246,15 @@
+     direct MX delivery, exactly as before this feature existed.
+     """
+     targets: list[RelayTarget] = []
++    if site.mailbox_mode:
++        try:
++            mailbox = await validate_sender(db, site, site.sender_email)
++        except ValueError:
++            return []
++        return [RelayTarget(
++            label=f"mailbox:{mailbox.email}", host=mailbox.smtp_host, port=mailbox.smtp_port,
++            username=mailbox.email, password=mailbox.password, use_tls=mailbox.use_tls,
++        )]
+ 
+     providers = (
+         await db.execute(
+@@ -300,7 +316,23 @@
+     makes ``send_email`` fall back to direct MX delivery — the behaviour before
+     providers existed.
+     """
+-    targets = await resolve_relay_targets(db, site)
++    # A mailbox account is an identity, not a standby relay. Never fall back to
++    # another mailbox, a global relay or direct MX when this account fails.
++    try:
++        mailbox = await validate_sender(db, site, send_kwargs.get("from_email") or site.sender_email)
++    except ValueError as exc:
++        return False, f"permanent: {exc}", "mailbox-policy"
++    if mailbox:
++        send_kwargs["from_email"] = mailbox.email
++        send_kwargs["from_name"] = mailbox.display_name or site.sender_name
++        # Beget manages DKIM; the project's generated key is not published there.
++        send_kwargs["dkim_private_key"] = ""
++        targets = [RelayTarget(
++            label=f"mailbox:{mailbox.email}", host=mailbox.smtp_host, port=mailbox.smtp_port,
++            username=mailbox.email, password=mailbox.password, use_tls=mailbox.use_tls,
++        )]
++    else:
++        targets = await resolve_relay_targets(db, site)
+     message_id = send_kwargs.setdefault("message_id", str(uuid.uuid4()))
+     def record(source, ok, error):
+         db.add(DeliveryAttempt(message_id=message_id, site_id=site.id,
+@@ -328,8 +360,7 @@
+             relay_use_tls=target.use_tls,
+             **send_kwargs,
+         )
+-        if target.password:
+-            error = error.replace(target.password, "[redacted]")
++        error = redact_smtp_error(error, target.username, target.password)
+         record(target.label, success, error)
+         if success:
+             if failures:
+--- a/app/routes_admin.py
++++ b/app/routes_admin.py
+@@ -243,7 +243,15 @@
+         raise HTTPException(status_code=404)
+     site.name = name
+     site.domain = _clean_domain(domain)
+-    site.sender_email = sender_email
++    from app.domain_util import normalize_email
++    try:
++        sender_email = normalize_email(sender_email)
++        if site.mailbox_mode:
++            from app.mailboxes import validate_sender
++            await validate_sender(db, site, sender_email)
++    except ValueError as exc:
++        raise HTTPException(422, str(exc)) from exc
++    site.sender_email = sender_email.lower() if site.mailbox_mode else sender_email
+     site.sender_name = sender_name
+     site.is_active = is_active
+     site.relay_host = relay_host
+@@ -264,7 +272,15 @@
+     db: AsyncSession = Depends(get_db),
+     admin: str = Depends(get_current_admin),
+ ):
+-    await db.execute(delete(Site).where(Site.id == site_id))
++    # ORM cascades remove mailbox secrets and dependent records; bulk delete
++    # would bypass cascades and leave orphaned credentials in SQLite.
++    site = await db.get(Site, site_id)
++    if not site:
++        raise HTTPException(404)
++    from app.models import DeliveryAttempt, OutboxMessage
++    await db.execute(delete(DeliveryAttempt).where(DeliveryAttempt.site_id == site_id))
++    await db.execute(delete(OutboxMessage).where(OutboxMessage.site_id == site_id))
++    await db.delete(site)
+     await db.commit()
+     return RedirectResponse(url="/admin/sites", status_code=status.HTTP_302_FOUND)
+ 
+@@ -308,6 +324,8 @@
+     site = (await db.execute(select(Site).where(Site.id == site_id))).scalar_one_or_none()
+     if not site:
+         raise HTTPException(status_code=404)
++    if site.mailbox_mode:
++        return templates.TemplateResponse(request, "mailbox_dns.html", {"admin": admin, "site": site})
+     domain = _clean_domain(site.domain)
+     server_ip = await asyncio.to_thread(resolve_server_ip)
+     smtp_hostname = settings.smtp_domain or ""
+@@ -462,6 +480,9 @@
+     site = (await db.execute(select(Site).where(Site.id == site_id))).scalar_one_or_none()
+     if not site:
+         raise HTTPException(status_code=404)
++    if site.mailbox_mode:
++        return JSONResponse({"domain": site.domain, "all_verified": False, "records": {},
++                             "note": "Mailboxes are hosted by Beget; keep Beget MX and configure DNS there."})
+     domain = _clean_domain(site.domain)
+     server_ip = await asyncio.to_thread(resolve_server_ip)
+     results = await asyncio.to_thread(
+--- a/app/routes_api.py
++++ b/app/routes_api.py
+@@ -22,8 +22,9 @@
+ from app.config import settings
+ from app.database import get_db
+ from app.domain_util import normalize_domain, normalize_email
+-from app.models import DeliveryAttempt, EmailLog, EmailTemplate, Site
+-from app.providers import send_via_providers
++from app.mailboxes import validate_sender
++from app.models import DeliveryAttempt, EmailLog, EmailTemplate, Mailbox, Site
++from app.providers import resolve_relay_targets, send_via_providers
+ from app.ratelimit import RateLimiter
+ from app.webhook_service import enqueue_event
+ 
+@@ -91,7 +92,13 @@
+     site_domain: str
+     template_slug: str
+     to_email: str
++    from_email: str | None = None
+     variables: dict[str, str] = Field(default_factory=dict, max_length=100)
++
++    @field_validator("from_email")
++    @classmethod
++    def from_valid(cls, value):
++        return normalize_email(value) if value else None
+ 
+     @field_validator("site_domain")
+     @classmethod
+@@ -180,6 +187,7 @@
+     req: EmailSendRequest,
+     db: AsyncSession = Depends(get_db),
+     auth_token: str = Depends(verify_api_key),
++    site_domain: str | None = None,
+ ):
+     """Send email directly (Resend-like API).
+ 
+@@ -201,32 +209,39 @@
+     recipients = req.to if isinstance(req.to, list) else [req.to]
+     from_domain = req.from_email.split("@")[-1].lower() if "@" in req.from_email else ""
+ 
+-    # 1) Resolve the site this key is allowed to send for.
++    # Site keys explicitly scope mailbox identities, even if a project's domain
++    # differs from the mailbox domain. Global callers can select ?site_domain=.
++    if site_domain:
++        try:
++            site_domain = normalize_domain(site_domain)
++        except ValueError as exc:
++            raise HTTPException(422, str(exc)) from exc
+     site = await resolve_site_by_key(db, auth_token)
+-
+     if site:
+-        # Per-site key: the From domain must match this site (anti-spoofing).
+-        if from_domain and from_domain != site.domain.lower():
+-            raise HTTPException(
+-                status_code=403,
+-                detail=f"This API key may only send from @{site.domain}, not @{from_domain}.",
+-            )
++        if site_domain and site_domain != site.domain:
++            raise HTTPException(403, "API key is scoped to a different project")
+     elif is_global_key(auth_token):
+-        # Global admin key: allow sending only as a configured, active domain.
+-        site = (
+-            await db.execute(select(Site).where(Site.domain == from_domain, Site.is_active.is_(True)))
+-        ).scalar_one_or_none()
++        if site_domain:
++            site = (await db.execute(select(Site).where(
++                Site.domain == site_domain, Site.is_active.is_(True)
++            ))).scalar_one_or_none()
++        else:
++            candidates = (await db.execute(select(Site).outerjoin(Mailbox).where(
++                Site.is_active.is_(True),
++                ((Site.mailbox_mode.is_(True) & (Mailbox.email == req.from_email.lower()) & Mailbox.is_active.is_(True))
++                 | (Site.mailbox_mode.is_(False) & (Site.domain == from_domain))),
++            ).distinct())).scalars().all()
++            if len(candidates) > 1:
++                raise HTTPException(400, "Mailbox belongs to multiple projects; add ?site_domain=example.com")
++            site = candidates[0] if candidates else None
+         if not site:
+-            raise HTTPException(
+-                status_code=403,
+-                detail=f"No active site configured for @{from_domain}. Add it under /admin → Sites first.",
+-            )
++            raise HTTPException(403, "No active project configured for this sender")
+     else:
+-        # Token is neither a valid site key nor the global key.
+-        raise HTTPException(
+-            status_code=401,
+-            detail="Invalid API key. Use the key from your site's admin panel (Сайты → DNS).",
+-        )
++        raise HTTPException(401, "Invalid API key")
++    try:
++        await validate_sender(db, site, req.from_email)
++    except ValueError as exc:
++        raise HTTPException(403, str(exc)) from exc
+ 
+     email_id = str(uuid.uuid4())
+     errors = []
+@@ -343,6 +358,12 @@
+             "Create the template at /admin → Templates.",
+         )
+ 
++    sender = req.from_email or site.sender_email
++    try:
++        await validate_sender(db, site, sender)
++    except ValueError as exc:
++        raise HTTPException(403, str(exc)) from exc
++
+     body_html = template.body_html
+     body_text = template.body_text
+     subject = template.subject
+@@ -354,7 +375,7 @@
+ 
+     email_id = str(uuid.uuid4())
+     try:
+-        EmailSendRequest(from_email=site.sender_email, to=req.to_email, subject=subject, html=body_html, text=body_text)
++        EmailSendRequest(from_email=sender, to=req.to_email, subject=subject, html=body_html, text=body_text)
+     except ValueError as exc:
+         raise HTTPException(422, "Rendered template exceeds limits or contains invalid headers") from exc
+     # Same provider resolution and off-loop dispatch as /api/emails.
+@@ -366,7 +387,7 @@
+         subject=subject,
+         body_html=body_html,
+         body_text=body_text,
+-        from_email=site.sender_email,
++        from_email=sender,
+         from_name=site.sender_name,
+         dkim_domain=site.domain,
+         dkim_selector=site.dkim_selector,
+@@ -376,7 +397,7 @@
+     log_entry = EmailLog(
+         site_id=site.id,
+         direction="outgoing",
+-        sender=site.sender_email,
++        sender=sender,
+         recipient=req.to_email,
+         subject=subject,
+         body_preview=_log_body_preview(body_html, body_text),
+@@ -397,7 +418,7 @@
+         {
+             "site_domain": site.domain,
+             "template_slug": req.template_slug,
+-            "from": site.sender_email,
++            "from": sender,
+             "to": req.to_email,
+             "subject": subject,
+             "status": "accepted" if success else "failed",
+@@ -449,7 +470,7 @@
+             sender_email=site.sender_email,
+             sender_name=site.sender_name,
+             is_active=site.is_active,
+-            has_relay=bool(site.relay_host),
++            has_relay=bool(await resolve_relay_targets(db, site)),
+             dkim_configured=bool(site.dkim_private_key),
+             created_at=site.created_at,
+         ),
+@@ -480,7 +501,7 @@
+             "name": s.name,
+             "sender_email": s.sender_email,
+             "is_active": s.is_active,
+-            "has_relay": bool(s.relay_host),
++            "has_relay": bool(await resolve_relay_targets(db, s)),
+         }
+         for s in sites
+     ]
+@@ -502,6 +523,13 @@
+ 
+     from app.dkim_util import dkim_dns_value
+     from app.net_util import resolve_server_ip
++
++    domain = normalize_domain(domain)
++    site = (await db.execute(select(Site).where(Site.domain == domain))).scalar_one_or_none()
++    if site and site.mailbox_mode:
++        return {"domain": domain, "records": [], "managed_by": "beget",
++                "note": "Keep Beget MX. Configure SPF/DKIM/DMARC for each mailbox domain in Beget; "
++                        "the project domain may differ. Direct-server DNS records do not apply."}
+ 
+     # Blocking DNS lookup — keep it off the event loop.
+     server_ip = await asyncio.to_thread(resolve_server_ip)
+--- a/app/routes_mailboxes.py
++++ b/app/routes_mailboxes.py
+@@ -0,0 +1,190 @@
++"""Admin project cabinet and a read-only, site-scoped mailbox catalogue."""
++
++import asyncio
++import datetime
++
++from fastapi import APIRouter, Depends, HTTPException, Request
++from fastapi.responses import RedirectResponse
++from sqlalchemy import select
++from sqlalchemy.exc import IntegrityError
++from sqlalchemy.ext.asyncio import AsyncSession
++
++from app.api_auth import authorized_site
++from app.auth import get_current_admin
++from app.database import get_db
++from app.domain_util import normalize_email
++from app.mailboxes import public_mailbox, reconcile_default, validate_sender
++from app.models import Mailbox, OutboxMessage, Site
++from app.outbox import enqueue_message
++from app.providers import test_connection
++from app.routes_admin import templates
++from app.routes_api import EmailSendRequest, api_rate_limit
++from app.smtp_transport import redact_smtp_error
++
++admin_router = APIRouter(prefix="/admin/sites", dependencies=[Depends(get_current_admin)])
++api_router = APIRouter(prefix="/api/mailboxes", tags=["mailboxes"])
++
++
++async def get_site(db, site_id):
++    site = await db.get(Site, site_id)
++    if not site:
++        raise HTTPException(404, "Project not found")
++    return site
++
++
++async def get_mailbox(db, site_id, mailbox_id):
++    row = await db.get(Mailbox, mailbox_id)
++    if not row or row.site_id != site_id:
++        raise HTTPException(404, "Mailbox not found in this project")
++    return row
++
++
++def cabinet_redirect(site_id):
++    return RedirectResponse(f"/admin/sites/{site_id}", status_code=303)
++
++
++def form_page(request, site, row, admin, error="", status_code=200):
++    return templates.TemplateResponse(request, "mailbox_form.html", {
++        "admin": admin, "site": site,
++        "mailbox": public_mailbox(row, site.sender_email) if row else None,
++        "error": error,
++    }, status_code=status_code)
++
++
++@admin_router.get("/{site_id}")
++async def cabinet(request: Request, site_id: int, db: AsyncSession = Depends(get_db),
++                  admin: str = Depends(get_current_admin)):
++    site = await get_site(db, site_id)
++    rows = (await db.execute(select(Mailbox).where(Mailbox.site_id == site_id).order_by(Mailbox.id))).scalars().all()
++    jobs = (await db.execute(select(OutboxMessage).where(OutboxMessage.site_id == site_id)
++                            .order_by(OutboxMessage.created_at.desc()).limit(10))).scalars().all()
++    return templates.TemplateResponse(request, "project.html", {
++        "admin": admin, "site": site, "mailboxes": [public_mailbox(m, site.sender_email) for m in rows],
++        "jobs": jobs,
++    })
++
++
++@admin_router.get("/{site_id}/mailboxes/new")
++async def new_mailbox(request: Request, site_id: int, db: AsyncSession = Depends(get_db),
++                      admin: str = Depends(get_current_admin)):
++    return form_page(request, await get_site(db, site_id), None, admin)
++
++
++@admin_router.get("/{site_id}/mailboxes/{mailbox_id}/edit")
++async def edit_mailbox(request: Request, site_id: int, mailbox_id: int, db: AsyncSession = Depends(get_db),
++                       admin: str = Depends(get_current_admin)):
++    site = await get_site(db, site_id)
++    return form_page(request, site, await get_mailbox(db, site_id, mailbox_id), admin)
++
++
++@admin_router.post("/{site_id}/mailboxes/new")
++@admin_router.post("/{site_id}/mailboxes/{mailbox_id}/edit")
++async def save_mailbox(request: Request, site_id: int, mailbox_id: int | None = None,
++                       db: AsyncSession = Depends(get_db), admin: str = Depends(get_current_admin)):
++    site = await get_site(db, site_id)
++    row = await get_mailbox(db, site_id, mailbox_id) if mailbox_id else None
++    form = await request.form()
++    try:
++        email = normalize_email(str(form.get("email", "")).strip()).lower()
++        display_name = str(form.get("display_name", "")).strip()
++        password = str(form.get("password", ""))
++        if len(display_name) > 255 or any(c in display_name for c in "\r\n"):
++            raise ValueError("Имя отправителя: до 255 символов, без переносов строк")
++        if len(password) > 1024:
++            raise ValueError("Слишком длинный пароль")
++        if not password and (not row or not row.password):
++            raise ValueError("Укажите пароль почтового ящика Beget, не пароль панели хостинга")
++        duplicate = (await db.execute(select(Mailbox).where(
++            Mailbox.site_id == site_id, Mailbox.email == email,
++        ))).scalar_one_or_none()
++        if duplicate and duplicate.id != mailbox_id:
++            raise ValueError("Этот адрес уже добавлен в данный проект")
++    except ValueError as exc:
++        return form_page(request, site, row, admin, str(exc), 422)
++    old_email = row.email if row else ""
++    row = row or Mailbox(site_id=site_id)
++    row.email, row.display_name = email, display_name
++    row.smtp_host, row.smtp_port, row.use_tls = "smtp.beget.com", 465, True
++    row.is_active = form.get("is_active") == "true"
++    if password:
++        row.password = password
++    row.last_tested_at, row.last_test_ok, row.last_test_error = None, None, ""
++    # Once enabled, mailbox mode stays enabled even if all accounts are deleted.
++    # This prevents silently reverting to a global relay/direct MX identity.
++    first = not site.mailbox_mode
++    site.mailbox_mode = True
++    if row.is_active and (first or form.get("is_default") == "true" or site.sender_email == old_email):
++        site.sender_email, site.sender_name = email, display_name
++    db.add(row)
++    try:
++        await db.flush()
++        await reconcile_default(db, site)
++        await db.commit()
++    except IntegrityError:
++        await db.rollback()
++        site = await get_site(db, site_id)
++        return form_page(request, site, None, admin, "Этот адрес уже существует в проекте", 409)
++    return cabinet_redirect(site_id)
++
++
++@admin_router.post("/{site_id}/mailboxes/{mailbox_id}/{action}", dependencies=[Depends(api_rate_limit)])
++async def mailbox_action(site_id: int, mailbox_id: int, action: str, db: AsyncSession = Depends(get_db)):
++    site = await get_site(db, site_id)
++    row = await get_mailbox(db, site_id, mailbox_id)
++    if action == "test":
++        if not row.password:
++            raise HTTPException(422, "Mailbox has no password")
++        ok, error, _ = await asyncio.to_thread(test_connection, row.smtp_host, row.smtp_port,
++                                               row.email, row.password, row.use_tls)
++        # A malicious server may echo AUTH input in its error response.
++        error = redact_smtp_error(error, row.email, row.password)
++        row.last_tested_at = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
++        row.last_test_ok, row.last_test_error = ok, error[:1000]
++    elif action == "default":
++        if not row.is_active or not row.password:
++            raise HTTPException(422, "Default mailbox must be active and have a password")
++        site.sender_email, site.sender_name = row.email, row.display_name
++    elif action == "toggle":
++        row.is_active = not row.is_active
++        await db.flush()
++        await reconcile_default(db, site)
++    elif action == "delete":
++        await db.delete(row)
++        await db.flush()
++        await reconcile_default(db, site)
++    else:
++        raise HTTPException(404)
++    await db.commit()
++    return cabinet_redirect(site_id)
++
++
++@admin_router.post("/{site_id}/send", dependencies=[Depends(api_rate_limit)])
++async def send_from_cabinet(request: Request, site_id: int, db: AsyncSession = Depends(get_db)):
++    site = await get_site(db, site_id)
++    form = await request.form()
++    try:
++        req = EmailSendRequest(from_email=str(form.get("from_email", "")), to=str(form.get("to", "")),
++                               subject=str(form.get("subject", "")), text=str(form.get("text", "")))
++        await validate_sender(db, site, req.from_email)
++    except ValueError as exc:
++        raise HTTPException(422, "Проверьте адреса, тему, размер текста и активность ящика") from exc
++    if not site.mailbox_mode:
++        raise HTTPException(422, "Сначала добавьте почтовый ящик")
++    row = await enqueue_message(db, site, {
++        "from_email": req.from_email, "to_email": req.to, "subject": req.subject,
++        "body_html": "", "body_text": req.text,
++    })
++    await db.commit()
++    return RedirectResponse(f"/admin/messages/{row.id}", status_code=303)
++
++
++@api_router.get("")
++async def list_mailboxes(site: Site = Depends(authorized_site), db: AsyncSession = Depends(get_db)):
++    rows = (await db.execute(select(Mailbox).where(
++        Mailbox.site_id == site.id, Mailbox.is_active.is_(True),
++    ).order_by(Mailbox.id))).scalars().all()
++    return {"site_domain": site.domain, "mailbox_mode": site.mailbox_mode,
++            "default_sender": site.sender_email, "mailboxes": [
++                {"email": row.email, "display_name": row.display_name,
++                 "is_default": row.email == site.sender_email.lower()} for row in rows
++            ]}
+--- a/app/routes_outbox.py
++++ b/app/routes_outbox.py
+@@ -6,6 +6,7 @@
+ 
+ from app.api_auth import authorized_site
+ from app.database import get_db
++from app.mailboxes import validate_sender
+ from app.models import OutboxMessage, Site
+ from app.outbox import enqueue_message
+ from app.routes_api import EmailSendRequest, api_rate_limit
+@@ -33,8 +34,10 @@
+     db: AsyncSession = Depends(get_db),
+     idempotency_key: str | None = Header(default=None, max_length=255),
+ ):
+-    if req.from_email.rsplit("@", 1)[-1] != site.domain:
+-        raise HTTPException(403, "Sender domain not authorized")
++    try:
++        await validate_sender(db, site, req.from_email)
++    except ValueError as exc:
++        raise HTTPException(403, str(exc)) from exc
+     recipients = req.to if isinstance(req.to, list) else [req.to]
+     # One row per request avoids partial enqueue; multi-recipient sending stays on legacy endpoint.
+     if len(recipients) != 1:
+--- a/app/smtp_client.py
++++ b/app/smtp_client.py
+@@ -18,7 +18,7 @@
+ 
+ from app.config import settings
+ from app.dkim_util import sign_message
+-from app.smtp_transport import SafeSMTP, SafeSMTP_SSL
++from app.smtp_transport import SafeSMTP, SafeSMTP_SSL, redact_smtp_error
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -134,6 +134,7 @@
+         error = ("uncertain: " if data_started and isinstance(exc, (OSError, smtplib.SMTPServerDisconnected)) else "") + str(exc)
+         if isinstance(exc, smtplib.SMTPDataError) and exc.smtp_code >= 500:
+             error = "permanent: " + error
++        error = redact_smtp_error(error, username, password)
+         logger.error("Relay send to %s via %s:%d failed: %s", to_email, host, port, error)
+         return False, error
+     finally:
+--- a/app/smtp_server.py
++++ b/app/smtp_server.py
+@@ -19,6 +19,7 @@
+ from app.config import settings
+ from app.database import async_session
+ from app.domain_util import normalize_domain, normalize_email
++from app.mailboxes import smtp_project, validate_sender
+ from app.models import EmailLog, Site, User, verify_password
+ 
+ logger = logging.getLogger(__name__)
+@@ -56,8 +57,14 @@
+             username = getattr(session, "smtp_username", "")
+             async with async_session() as db:
+                 user = (await db.execute(select(User).where(User.username == username, User.is_active.is_(True)))).scalar_one_or_none()
+-                if not user or _extract_domain(address) not in (user.smtp_domains or "").split(","):
+-                    return "553 Sender domain not allowed for this account"
++                if not user:
++                    return "553 Sender account is inactive"
++                allowed = [d.strip() for d in (user.smtp_domains or "").split(",") if d.strip()]
++                try:
++                    site = await smtp_project(db, normalize_email(address), allowed)
++                except ValueError:
++                    return "553 Sender not allowed or ambiguous for this account"
++                session.smtp_site_id = site.id
+             now = time.monotonic()
+             hits = [t for t in self._account_hits[username] if t > now - 60]
+             if len(hits) >= settings.smtp_account_per_min:
+@@ -120,7 +127,8 @@
+             return "550 Message parse error"
+ 
+         if authenticated:
+-            return await self._relay_outbound(mail_from, rcpt_tos, data, subject, body)
++            return await self._relay_outbound(mail_from, rcpt_tos, data, subject, body,
++                                              site_id=getattr(session, "smtp_site_id", None))
+ 
+         if not settings.inbound_enabled:
+             return "550 Inbound mail disabled"
+@@ -176,7 +184,7 @@
+             return "451 Temporary storage failure; retry later"
+         return "250 Message accepted"
+ 
+-    async def _relay_outbound(self, mail_from, rcpt_tos, raw_data, subject, body):
++    async def _relay_outbound(self, mail_from, rcpt_tos, raw_data, subject, body, site_id=None):
+         from app.outbox import enqueue_message
+         try:
+             mail_from = normalize_email(mail_from)
+@@ -188,9 +196,15 @@
+             if _extract_domain(header_sender) != _extract_domain(mail_from):
+                 return "553 Header From must match envelope domain"
+             async with async_session() as db:
+-                site = (await db.execute(select(Site).where(Site.domain == _extract_domain(mail_from), Site.is_active.is_(True)))).scalar_one_or_none()
+-                if not site:
+-                    return "553 No active site for sender domain"
++                site = await db.get(Site, site_id) if site_id else (
++                    await db.execute(select(Site).where(
++                        Site.domain == _extract_domain(mail_from), Site.is_active.is_(True)
++                    ))).scalar_one_or_none()
++                if not site or not site.is_active:
++                    return "553 No active project for sender"
++                mailbox = await validate_sender(db, site, mail_from)
++                if mailbox and header_sender.lower() != mail_from.lower():
++                    return "553 Header From must match the registered mailbox"
+                 if not 1 <= len(rcpt_tos) <= settings.smtp_max_recipients:
+                     return "452 Invalid recipient count"
+                 for recipient in rcpt_tos:
+--- a/app/smtp_transport.py
++++ b/app/smtp_transport.py
+@@ -1,5 +1,6 @@
+ """Validated, IP-pinned SMTP connections with original-host TLS verification."""
+ 
++import base64
+ import ipaddress
+ import smtplib
+ import socket
+@@ -42,3 +43,17 @@
+         except Exception:
+             sock.close()
+             raise
++
++
++def redact_smtp_error(error, username="", password=""):
++    if not password:
++        return error
++    variants = {
++        password, repr(password)[1:-1],
++        base64.b64encode(password.encode()).decode(),
++        base64.b64encode(f"\0{username}\0{password}".encode()).decode(),
++    }
++    for secret in sorted(variants, key=len, reverse=True):
++        if secret:
++            error = error.replace(secret, "[redacted]")
++    return error
+--- a/app/static/css/app.css
++++ b/app/static/css/app.css
+@@ -137,3 +137,14 @@
+ input[type=checkbox],input[type=radio]{accent-color:#111}.form-group>.muted{margin-top:8px}.messages-table{min-width:1100px}.messages-table td:first-child{min-width:170px}.messages-table td:nth-child(3),.messages-table td:nth-child(4){min-width:170px;white-space:nowrap}
+ 
+ .templates-table td:nth-child(2){min-width:90px;white-space:nowrap}
++
++/* Project mailbox cabinet: account identities, not relay failover. */
++.project-cabinet{max-width:1400px}.project-subtitle{margin-top:12px}
++.project-toolbar{margin-bottom:24px}.mailbox-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:16px}
++.mailbox-heading h3{margin-bottom:0}.mailbox-heading h4{font-size:18px;font-weight:600;overflow-wrap:anywhere;min-width:0;flex:1}
++.mailbox-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}
++.mailbox-card{border:1px solid var(--border);padding:24px;min-width:0;background:var(--surface)}
++.mailbox-card p{overflow-wrap:anywhere}.mailbox-check{margin:16px 0 24px;min-height:24px}.mailbox-help{margin-bottom:24px}
++.project-table{overflow-x:auto}.project-cabinet .notice{overflow-wrap:anywhere}.project-cabinet code{overflow-wrap:anywhere}
++@media(max-width:1100px){.mailbox-grid{grid-template-columns:1fr}}
++@media(max-width:700px){.mailbox-card{padding:20px}.mailbox-heading{gap:12px}.mailbox-card .actions{gap:8px}}
+--- a/app/templates/mailbox_dns.html
++++ b/app/templates/mailbox_dns.html
+@@ -0,0 +1,12 @@
++{% extends "base.html" %}
++{% block title %}DNS почты Beget — {{ site.name }}{% endblock %}
++{% block body %}
++<div class="layout">{% set active='sites' %}{% include 'nav.html' %}<main class="main project-cabinet">
++<p class="eyebrow">{{ site.domain }} / DNS</p>
++<div class="page-header"><h2>Почта обслуживается Beget</h2><a class="btn" href="/admin/sites/{{ site.id }}">В кабинет</a></div>
++<section class="section form-width">
++<div class="notice">Для этого проекта включена отправка через подключённые почтовые ящики Beget. Записи для самостоятельного почтового сервера сюда не подходят.</div>
++<ul><li>Оставьте MX доменов почтовых ящиков на Beget.</li><li>SPF, DKIM и DMARC настраивайте по актуальной инструкции Beget для домена каждого ящика.</li><li>Домен проекта может отличаться от домена адреса отправителя.</li><li>Не создавайте вторую SPF-запись и не публикуйте автоматически сгенерированный DKIM проекта вместо ключа Beget.</li></ul>
++<p class="mailbox-check"><a class="btn" href="https://beget.com/ru/kb/how-to/mail/nastrojka-the-bat" target="_blank" rel="noopener noreferrer">Настройки почты Beget ↗</a></p>
++</section></main></div>
++{% endblock %}
+--- a/app/templates/mailbox_form.html
++++ b/app/templates/mailbox_form.html
+@@ -0,0 +1,23 @@
++{% extends "base.html" %}
++{% block title %}{{ 'Изменить почту' if mailbox else 'Добавить почту' }} — {{ site.name }}{% endblock %}
++{% block body %}
++<div class="layout">{% set active='sites' %}{% include 'nav.html' %}
++<main class="main project-cabinet">
++    <p class="eyebrow">{{ site.domain }} / Почтовые ящики</p>
++    <div class="page-header"><h2>{{ 'Изменить почту' if mailbox else 'Добавить почту' }}</h2><a href="/admin/sites/{{ site.id }}" class="btn">В кабинет</a></div>
++    <section class="section form-width">
++        <div class="notice">Сначала создайте ящик в панели Beget. Здесь укажите его полный адрес и пароль от почты, а не пароль аккаунта хостинга. Добавление здесь не создаёт новый ящик в Beget.</div>
++        {% if error %}<div class="notice" role="alert">{{ error }}</div>{% endif %}
++        <form method="post">
++            <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
++            <div class="form-group"><label for="email">Адрес почты Beget</label><input id="email" type="email" name="email" value="{{ mailbox.email if mailbox else '' }}" autocomplete="username" required maxlength="254" placeholder="info@trioz.ru"></div>
++            <div class="form-group"><label for="display-name">Имя отправителя</label><input id="display-name" name="display_name" value="{{ mailbox.display_name if mailbox else '' }}" maxlength="255" placeholder="Команда Trioz"></div>
++            <div class="form-group"><label for="password">{{ 'Новый пароль почты' if mailbox else 'Пароль почты' }}</label><input id="password" type="password" name="password" autocomplete="new-password" maxlength="1024" {% if not mailbox %}required{% endif %}><p class="muted">{% if mailbox %}Оставьте пустым, чтобы сохранить текущий пароль. {% endif %}Пароль хранится зашифрованным и не показывается повторно.</p></div>
++            <div class="notice">SMTP: <strong>smtp.beget.com</strong> · порт <strong>465</strong> · SSL/TLS. Логин — полный адрес почты. Эти параметры задаются автоматически.</div>
++            <div class="form-group"><div class="form-check"><input id="account-active" name="is_active" type="checkbox" value="true" {% if not mailbox or mailbox.is_active %}checked{% endif %}><label for="account-active">Активен для отправки</label></div>
++            <div class="form-check"><input id="account-default" name="is_default" type="checkbox" value="true" {% if mailbox and mailbox.is_default %}checked{% endif %}><label for="account-default">Использовать по умолчанию для шаблонов</label></div></div>
++            <div class="actions"><button class="btn btn-primary" type="submit">Сохранить почту</button><a href="/admin/sites/{{ site.id }}" class="btn">Отмена</a></div>
++        </form>
++    </section>
++</main></div>
++{% endblock %}
+--- a/app/templates/project.html
++++ b/app/templates/project.html
+@@ -0,0 +1,70 @@
++{% extends "base.html" %}
++{% block title %}{{ site.name }} — кабинет проекта{% endblock %}
++{% block body %}
++<div class="layout">
++{% set active='sites' %}{% include 'nav.html' %}
++<main class="main project-cabinet">
++    <p class="eyebrow">Кабинет проекта / {{ site.domain }}</p>
++    <div class="page-header">
++        <div><h2>{{ site.name }}</h2><p class="muted project-subtitle">{{ 'Проект активен' if site.is_active else 'Проект выключен: отправка недоступна' }}</p></div>
++        <a href="/admin/sites" class="btn">Все проекты</a>
++    </div>
++    <div class="project-toolbar actions">
++        <a href="/admin/sites/{{ site.id }}/edit" class="btn">Настройки проекта</a>
++        <a href="https://web.beget.email/" target="_blank" rel="noopener noreferrer" class="btn">Входящая почта Beget ↗</a>
++    </div>
++    <div class="notice">
++        Здесь подключаются уже созданные в Beget почтовые ящики. Один проект — несколько адресов и паролей.
++        Отправка идёт через <strong>smtp.beget.com:465 (SSL/TLS)</strong>, под аккаунтом выбранного адреса.
++        <p>Входящая почта остаётся в Beget. Не меняйте MX на этот сервис; синхронизация IMAP здесь не выполняется.
++        SPF/DKIM настройте по инструкции Beget для домена почтового ящика, не обязательно домена проекта.</p>
++    </div>
++    <section class="section">
++        <div class="mailbox-heading"><h3>Почтовые ящики <span class="muted">· {{ mailboxes|length }}</span></h3>
++            <a href="/admin/sites/{{ site.id }}/mailboxes/new" class="btn btn-primary">Добавить почту</a></div>
++        {% if mailboxes %}
++        <div class="mailbox-grid">
++        {% for m in mailboxes %}
++        <article class="mailbox-card">
++            <div class="mailbox-heading"><h4>{{ m.email }}</h4><span class="badge">{{ 'Активен' if m.is_active else 'Выключен' }}</span></div>
++            <p class="muted">{{ m.display_name or 'Без имени отправителя' }}{% if m.is_default %} · По умолчанию{% endif %}</p>
++            <p class="mailbox-check">{% if m.last_test_ok is sameas true %}Подключение проверено{% elif m.last_test_ok is sameas false %}Ошибка подключения: {{ m.last_test_error }}{% else %}Подключение ещё не проверено{% endif %}</p>
++            <div class="actions">
++                <a href="/admin/sites/{{ site.id }}/mailboxes/{{ m.id }}/edit" class="btn">Изменить</a>
++                <form method="post" action="/admin/sites/{{ site.id }}/mailboxes/{{ m.id }}/test"><input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}"><button class="btn">Проверить</button></form>
++                {% if m.is_active and not m.is_default %}<form method="post" action="/admin/sites/{{ site.id }}/mailboxes/{{ m.id }}/default"><input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}"><button class="btn">По умолчанию</button></form>{% endif %}
++                <form method="post" action="/admin/sites/{{ site.id }}/mailboxes/{{ m.id }}/toggle"><input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}"><button class="btn">{{ 'Выключить' if m.is_active else 'Включить' }}</button></form>
++                <form method="post" action="/admin/sites/{{ site.id }}/mailboxes/{{ m.id }}/delete" data-confirm="Удалить подключение {{ m.email }}? Сам ящик в Beget не удаляется."><input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}"><button class="btn btn-danger">Удалить</button></form>
++            </div>
++        </article>
++        {% endfor %}
++        </div>
++        {% else %}
++        <div class="empty-state"><p>Пока нет подключённых почт. Добавьте адрес и пароль ящика, созданного в Beget.</p></div>
++        {% endif %}
++        {% if site.mailbox_mode and not site.sender_email %}<p class="notice">Нет активного ящика: отправка заблокирована до включения или добавления почты.</p>{% endif %}
++    </section>
++    {% if site.mailbox_mode and site.sender_email and site.is_active %}
++    <section class="section form-width">
++        <h3>Отправить письмо</h3><p class="muted mailbox-help">Письмо попадёт в очередь. Accepted означает приём сервером Beget, а не доставку в папку «Входящие».</p>
++        <form method="post" action="/admin/sites/{{ site.id }}/send">
++            <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
++            <div class="form-group"><label for="from-email">От кого</label><select id="from-email" name="from_email" required>{% for m in mailboxes if m.is_active %}<option value="{{ m.email }}" {% if m.is_default %}selected{% endif %}>{{ m.email }}{% if m.is_default %} — по умолчанию{% endif %}</option>{% endfor %}</select></div>
++            <div class="form-group"><label for="recipient">Кому</label><input id="recipient" name="to" type="email" required maxlength="254" placeholder="recipient@gmail.com"></div>
++            <div class="form-group"><label for="subject">Тема</label><input id="subject" name="subject" required maxlength="500"></div>
++            <div class="form-group"><label for="body">Текст письма</label><textarea id="body" name="text" required maxlength="1000000"></textarea></div>
++            <button type="submit" class="btn btn-primary">Поставить в очередь</button>
++        </form>
++    </section>
++    {% endif %}
++    <section class="section">
++        <h3>Последние отправки проекта</h3>
++        {% if jobs %}<div class="project-table"><table><thead><tr><th>Дата (UTC)</th><th>Статус</th><th>Попытки</th><th>Маршрут / ошибка</th></tr></thead><tbody>{% for job in jobs %}<tr><td><a href="/admin/messages/{{ job.id }}">{{ job.created_at.strftime('%d.%m.%Y %H:%M') }}</a></td><td>{{ job.status }}</td><td>{{ job.attempts }}</td><td>{{ job.relay or 'Ожидает отправки' }}{% if job.error %}<br>{{ job.error }}{% endif %}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="muted">Отправок через очередь пока нет.</p>{% endif %}
++    </section>
++    <section class="section form-width">
++        <h3>Подключение проекта через API</h3>
++        <p class="mailbox-help">Используйте ключ этого проекта из раздела «Сайты». В <code>POST /api/outbox</code> укажите <code>from_email</code> — один из подключённых активных адресов. Список доступен через <code>GET /api/mailboxes</code>.</p>
++        <p class="muted">Домен проекта {{ site.domain }} может отличаться от домена почты: например, проект buisness.trioz.ru может отправлять от info@trioz.ru, если ящик добавлен именно сюда. Пароли не передаются в API отправки.</p>
++    </section>
++</main></div>
++{% endblock %}
+--- a/app/templates/providers.html
++++ b/app/templates/providers.html
+@@ -5,5 +5,5 @@
+ <section class="section"><table class="providers-table"><thead><tr><th>Провайдер / сайт</th><th>Подключение</th><th>Приоритет</th><th>Проверка</th><th>Действия</th></tr></thead><tbody>
+ {% for p in providers %}<tr><td><strong>{{ p.name }}</strong><br>{{ sites[p.site_id].domain if p.site_id in sites else 'Сайт удалён' }}<br><span class="badge">{{ 'Активен' if p.is_active else 'Отключён' }}</span></td><td>{{ p.host }}:{{ p.port }}<br><span class="muted">{{ 'Implicit TLS' if p.port==465 else ('STARTTLS' if p.use_tls else 'Без TLS') }}</span><br>{{ 'Пароль сохранён' if p.password else 'Без пароля' }}</td><td>{{ p.priority }}</td><td>{{ p.last_tested_at.strftime('%d.%m.%Y %H:%M') if p.last_tested_at else 'Не проверен' }}<br>{{ 'Соединение установлено' if p.last_test_ok else p.last_test_error }}<br><span class="muted">Тест подключения ≠ доставка</span></td><td><div class="actions"><a class="btn btn-ghost" href="/admin/providers/{{ p.id }}/edit">Изменить</a>{% for action,label in [('test','Проверить'),('primary','Основной'),('toggle','Переключить'),('delete','Удалить')] %}<form method="post" action="/admin/providers/{{ p.id }}/{{ action }}" {% if action=='delete' %}data-confirm="Удалить провайдера?"{% endif %}>
+ <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}"><button class="btn {{ 'btn-danger' if action=='delete' else 'btn-ghost' }}" type="submit">{{ label }}</button></form>{% endfor %}</div></td></tr>{% else %}<tr><td colspan="5">Провайдеров пока нет. Добавьте SMTP relay для отправки.</td></tr>{% endfor %}
+-</tbody></table></section><section class="section"><h3>Эффективный порядок</h3>{% for id, labels in orders.items() %}<p><strong>{{ sites[id].domain }}</strong> — {{ ' → '.join(labels) if labels else ('Direct MX (включён явно)' if direct_mx else 'Отправка запрещена: нет relay') }}</p>{% endfor %}</section>
++</tbody></table></section><section class="section"><h3>Эффективный порядок</h3>{% for id, labels in orders.items() %}<p><strong>{{ sites[id].domain }}</strong> — {{ ' → '.join(labels) if labels else ('Нет активной почты: откройте кабинет проекта' if sites[id].mailbox_mode else ('Direct MX (включён явно)' if direct_mx else 'Отправка запрещена: нет relay')) }}</p>{% endfor %}</section>
+ </main></div>{% endblock %}
+--- a/app/templates/site_form.html
++++ b/app/templates/site_form.html
+@@ -41,6 +41,11 @@
+                 </div>
+                 {% endif %}
+ 
++                {% if site and site.mailbox_mode %}
++                <div class="notice">Для этого проекта включена отправка через отдельные почтовые ящики.
++                <a href="/admin/sites/{{ site.id }}">Управлять почтами в кабинете</a>.
++                Поля SMTP Relay ниже не используются для этого проекта.</div>
++                {% endif %}
+                 <h3 class="legacy-64">SMTP Relay (необязательно)</h3>
+                 {% if provider_count %}
+                 <div class="legacy-65">
+--- a/app/templates/sites.html
++++ b/app/templates/sites.html
+@@ -15,7 +15,7 @@
+         <div class="legacy-68 section">
+             <div class="legacy-69">
+                 <div>
+-                    <h3 class="legacy-70">{{ site.name }}</h3>
++                    <h3 class="legacy-70"><a href="/admin/sites/{{ site.id }}">{{ site.name }}</a></h3>
+                     <span class="legacy-71">{{ site.domain }}</span>
+                     {% if site.relay_host %}
+                     <span class="legacy-72 badge badge-blue">{{ site.relay_host }}</span>
+@@ -40,6 +40,7 @@
+             </div>
+ 
+             <div class="legacy-77">
++                <a href="/admin/sites/{{ site.id }}" class="btn btn-primary btn-sm">Кабинет / Почты</a>
+                 <a href="/admin/sites/{{ site.id }}/dns" class="legacy-42 btn btn-ghost btn-sm">DNS</a>
+                 <a href="/admin/sites/{{ site.id }}/edit" class="btn btn-ghost btn-sm">Изменить</a>
+                 <form method="post" action="/admin/sites/{{ site.id }}/regenerate-key" class="legacy-78">
+--- a/tests/conftest.py
++++ b/tests/conftest.py
+@@ -37,6 +37,7 @@
+     EmailLog,
+     EmailProvider,
+     EmailTemplate,
++    Mailbox,
+     OutboxMessage,
+     Site,
+     User,
+@@ -52,6 +53,7 @@
+     WebhookDelivery,
+     Webhook,
+     EmailProvider,
++    Mailbox,
+     EmailLog,
+     EmailTemplate,
+     Site,
+--- a/tests/test_mailboxes.py
++++ b/tests/test_mailboxes.py
+@@ -0,0 +1,429 @@
++"""Beget mailbox identities, isolation, encryption, migration and cabinet workflows."""
++
++import base64
++import json
++import re
++from types import SimpleNamespace
++
++import httpx
++import pytest
++import pytest_asyncio
++from sqlalchemy import select, text
++
++from app.auth import SESSION_COOKIE, create_session_token
++from app.config import settings
++from app.database import async_session, engine, migrate_hardening
++from app.mailboxes import validate_sender
++from app.main import app
++from app.models import Mailbox, OutboxMessage, Site, User
++from app.outbox import dispatch_due, enqueue_message
++from app.providers import send_via_providers
++from app.smtp_server import SmtpHandler
++
++
++async def account(site, email="info@example.com", password="secret-account-one", **fields):
++    async with async_session() as db:
++        project = await db.get(Site, site.id)
++        project.mailbox_mode = True
++        project.sender_email = email
++        row = Mailbox(site_id=site.id, email=email, password=password, **fields)
++        db.add(row)
++        await db.commit()
++        return row
++
++
++@pytest_asyncio.fixture
++async def cabinet_client():
++    async with async_session() as db:
++        db.add(User(username="owner", password_hash="unused", password_salt="", role="admin"))
++        await db.commit()
++    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
++        client.cookies.set(SESSION_COOKIE, create_session_token("owner"))
++        yield client
++
++
++async def csrf(client, path):
++    page = await client.get(path)
++    assert page.status_code == 200, page.text
++    return re.search(r'name="csrf_token" value="([^"]+)"', page.text)[1]
++
++
++def message(sender="info@example.com"):
++    return {"from_email": sender, "to_email": "recipient@example.net", "subject": "hello", "body_html": "", "body_text": "test"}
++
++
++@pytest.mark.asyncio
++async def test_each_mailbox_uses_its_own_credentials(site, monkeypatch):
++    await account(site, "info@example.com", "secret-info")
++    await account(site, "sales@example.com", "secret-sales")
++    calls = []
++    def fake(**kwargs):
++        calls.append(kwargs)
++        return True, ""
++    monkeypatch.setattr("app.providers.send_email", fake)
++    async with async_session() as db:
++        project = await db.get(Site, site.id)
++        for sender in ["info@example.com", "sales@example.com"]:
++            ok, error, source = await send_via_providers(db, project, **message(sender), dkim_private_key="project-key")
++            assert ok and source == f"mailbox:{sender}"
++    assert [c["relay_username"] for c in calls] == ["info@example.com", "sales@example.com"]
++    assert [c["relay_password"] for c in calls] == ["secret-info", "secret-sales"]
++    assert all(c["relay_host"] == "smtp.beget.com" and c["relay_port"] == 465 for c in calls)
++    assert all(c["dkim_private_key"] == "" for c in calls)
++
++
++@pytest.mark.asyncio
++async def test_no_fallback_to_other_mailbox_global_relay_or_direct_mx(site, monkeypatch):
++    await account(site)
++    await account(site, "sales@example.com")
++    monkeypatch.setattr(settings, "relay_host", "fallback.example.net")
++    monkeypatch.setattr(settings, "allow_direct_mx", True)
++    calls = []
++    def fake(**kwargs):
++        calls.append(kwargs)
++        return False, "authentication rejected"
++    monkeypatch.setattr("app.providers.send_email", fake)
++    async with async_session() as db:
++        project = await db.get(Site, site.id)
++        ok, error, source = await send_via_providers(db, project, **message())
++    assert not ok and source == "mailbox:info@example.com"
++    assert len(calls) == 1 and calls[0]["relay_username"] == "info@example.com"
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize("sender", ["not-added@example.com", "someone@foreign.ru"])
++async def test_unregistered_sender_fails_closed(site, sender, monkeypatch):
++    await account(site)
++    def must_not_send(**kwargs):
++        pytest.fail("unregistered sender dialled SMTP")
++    monkeypatch.setattr("app.providers.send_email", must_not_send)
++    async with async_session() as db:
++        ok, error, _ = await send_via_providers(db, await db.get(Site, site.id), **message(sender))
++    assert not ok and error.startswith("permanent:")
++
++
++@pytest.mark.asyncio
++async def test_secret_encrypted_at_rest(site):
++    row = await account(site, password="private-password-at-rest")
++    async with engine.connect() as conn:
++        raw = (await conn.execute(text("SELECT password FROM mailboxes WHERE id=:id"), {"id": row.id})).scalar()
++    assert raw.startswith("enc:v1:") and "private-password-at-rest" not in raw
++    async with async_session() as db:
++        assert (await db.get(Mailbox, row.id)).password == "private-password-at-rest"
++
++
++@pytest.mark.asyncio
++async def test_cabinet_and_edit_never_echo_password(site, cabinet_client):
++    row = await account(site, password="never-render-this-password")
++    for path in [f"/admin/sites/{site.id}", f"/admin/sites/{site.id}/mailboxes/{row.id}/edit"]:
++        result = await cabinet_client.get(path)
++        assert result.status_code == 200
++        assert "never-render-this-password" not in result.text
++    result = await cabinet_client.get("/api/mailboxes", headers={"Authorization": "Bearer sm_testkey"})
++    assert result.status_code == 200
++    assert "never-render-this-password" not in result.text and "password" not in result.text
++
++
++@pytest.mark.asyncio
++async def test_add_multiple_mailboxes_normalize_duplicates_and_defaults(site, cabinet_client):
++    path = f"/admin/sites/{site.id}/mailboxes/new"
++    for email in ["INFO@EXAMPLE.COM", "sales@example.com"]:
++        token = await csrf(cabinet_client, path)
++        result = await cabinet_client.post(path, data={"csrf_token": token, "email": email,
++            "display_name": "Team", "password": "mailbox-pass", "is_active": "true"})
++        assert result.status_code == 303
++    async with async_session() as db:
++        rows = (await db.execute(select(Mailbox).where(Mailbox.site_id == site.id).order_by(Mailbox.id))).scalars().all()
++        assert [r.email for r in rows] == ["info@example.com", "sales@example.com"]
++        project = await db.get(Site, site.id)
++        assert project.mailbox_mode and project.sender_email == "info@example.com"
++    token = await csrf(cabinet_client, path)
++    result = await cabinet_client.post(path, data={"csrf_token": token, "email": "INFO@example.com", "password": "secret"})
++    assert result.status_code == 422
++
++
++@pytest.mark.asyncio
++async def test_blank_edit_password_preserves_existing_secret(site, cabinet_client):
++    row = await account(site)
++    path = f"/admin/sites/{site.id}/mailboxes/{row.id}/edit"
++    result = await cabinet_client.post(path, data={"csrf_token": await csrf(cabinet_client, path),
++        "email": row.email, "display_name": "New name", "password": "", "is_active": "true"})
++    assert result.status_code == 303
++    async with async_session() as db:
++        updated = await db.get(Mailbox, row.id)
++        assert updated.password == "secret-account-one" and updated.display_name == "New name"
++
++
++@pytest.mark.asyncio
++async def test_choose_default_disable_and_delete_keep_fail_closed(site, cabinet_client):
++    one = await account(site)
++    two = await account(site, "sales@example.com")
++    root = f"/admin/sites/{site.id}"
++    token = await csrf(cabinet_client, root)
++    assert (await cabinet_client.post(f"{root}/mailboxes/{one.id}/default", data={"csrf_token": token})).status_code == 303
++    async with async_session() as db:
++        assert (await db.get(Site, site.id)).sender_email == one.email
++    assert (await cabinet_client.post(f"{root}/mailboxes/{one.id}/toggle", data={"csrf_token": token})).status_code == 303
++    async with async_session() as db:
++        assert (await db.get(Site, site.id)).sender_email == two.email
++    for row in [one, two]:
++        assert (await cabinet_client.post(f"{root}/mailboxes/{row.id}/delete", data={"csrf_token": token})).status_code == 303
++    async with async_session() as db:
++        project = await db.get(Site, site.id)
++        assert project.mailbox_mode and project.sender_email == ""
++        with pytest.raises(ValueError):
++            await validate_sender(db, project, "info@example.com")
++
++
++@pytest.mark.asyncio
++async def test_project_scoped_catalogue_and_cross_project_address(site, cabinet_client):
++    await account(site, "info@trioz.ru")
++    async with async_session() as db:
++        other = Site(name="Business", domain="buisness.trioz.ru", sender_email="sales@trioz.ru",
++                     mailbox_mode=True, api_key="sm_business")
++        db.add(other)
++        await db.flush()
++        db.add(Mailbox(site_id=other.id, email="sales@trioz.ru", password="secret-business"))
++        await db.commit()
++    headers = {"Authorization": "Bearer sm_testkey"}
++    result = await cabinet_client.get("/api/mailboxes", headers=headers)
++    assert [r["email"] for r in result.json()["mailboxes"]] == ["info@trioz.ru"]
++    assert "sales@trioz.ru" not in result.text
++    assert (await cabinet_client.get("/api/mailboxes?site_domain=buisness.trioz.ru", headers=headers)).status_code == 403
++    result = await cabinet_client.post("/api/outbox", headers=headers, json={
++        "from_email": "sales@trioz.ru", "to": "a@example.net", "subject": "test"})
++    assert result.status_code == 403
++    result = await cabinet_client.post("/api/outbox", headers={"Authorization": "Bearer sm_business"}, json={
++        "from_email": "sales@trioz.ru", "to": "a@example.net", "subject": "test"})
++    assert result.status_code == 202
++
++
++@pytest.mark.asyncio
++async def test_sync_api_accepts_registered_cross_domain_sender(site, cabinet_client, monkeypatch):
++    await account(site, "info@trioz.ru")
++    calls = []
++    def fake(**kwargs):
++        calls.append(kwargs)
++        return True, ""
++    monkeypatch.setattr("app.providers.send_email", fake)
++    result = await cabinet_client.post("/api/emails", headers={"Authorization": "Bearer sm_testkey"}, json={
++        "from_email": "info@trioz.ru", "to": "a@example.net", "subject": "test"})
++    assert result.status_code == 200 and calls[0]["relay_username"] == "info@trioz.ru"
++    result = await cabinet_client.post("/api/emails", headers={"Authorization": "Bearer sm_testkey"}, json={
++        "from_email": "unknown@trioz.ru", "to": "a@example.net", "subject": "test"})
++    assert result.status_code == 403
++
++
++@pytest.mark.asyncio
++async def test_global_shared_mailbox_requires_project_selection(site, cabinet_client, monkeypatch):
++    await account(site, "shared@trioz.ru")
++    async with async_session() as db:
++        other = Site(name="Other", domain="buisness.trioz.ru", sender_email="shared@trioz.ru",
++                     mailbox_mode=True, api_key="sm_other")
++        db.add(other)
++        await db.flush()
++        db.add(Mailbox(site_id=other.id, email="shared@trioz.ru", password="other"))
++        await db.commit()
++    monkeypatch.setattr(settings, "api_key", "global-secret")
++    monkeypatch.setattr("app.providers.send_email", lambda **kw: (True, ""))
++    payload = {"from_email": "shared@trioz.ru", "to": "a@example.net", "subject": "test"}
++    headers = {"Authorization": "Bearer global-secret"}
++    assert (await cabinet_client.post("/api/emails", headers=headers, json=payload)).status_code == 400
++    assert (await cabinet_client.post("/api/emails?site_domain=buisness.trioz.ru", headers=headers, json=payload)).status_code == 200
++
++
++@pytest.mark.asyncio
++async def test_disabled_mailbox_blocks_queued_message_before_delivery(site, monkeypatch):
++    row = await account(site)
++    async with async_session() as db:
++        project = await db.get(Site, site.id)
++        job = await enqueue_message(db, project, message())
++        (await db.get(Mailbox, row.id)).is_active = False
++        await db.commit()
++    def no_send(**kw):
++        pytest.fail("Disabled account attempted delivery")
++    monkeypatch.setattr("app.providers.send_email", no_send)
++    assert await dispatch_due() == 1
++    async with async_session() as db:
++        updated = await db.get(OutboxMessage, job.id)
++        assert updated.status == "failed" and updated.error.startswith("permanent:")
++
++
++@pytest.mark.asyncio
++async def test_cabinet_sending_queues_selected_mailbox(site, cabinet_client):
++    await account(site)
++    await account(site, "sales@example.com")
++    path = f"/admin/sites/{site.id}"
++    result = await cabinet_client.post(path+"/send", data={"csrf_token": await csrf(cabinet_client, path),
++        "from_email": "info@example.com", "to": "a@example.net", "subject": "from cabinet", "text": "hello"})
++    assert result.status_code == 303 and result.headers["location"].startswith("/admin/messages/")
++    async with async_session() as db:
++        jobs = (await db.execute(select(OutboxMessage))).scalars().all()
++        assert len(jobs) == 1 and json.loads(jobs[0].payload)["from_email"] == "info@example.com"
++
++
++@pytest.mark.asyncio
++async def test_csrf_origin_and_roles_still_enforced(site, cabinet_client):
++    path = f"/admin/sites/{site.id}/mailboxes/new"
++    data = {"email": "a@example.com", "password": "secret", "is_active": "true"}
++    assert (await cabinet_client.post(path, data=data)).status_code == 403
++    token = await csrf(cabinet_client, path)
++    assert (await cabinet_client.post(path, data={**data, "csrf_token": token}, headers={"Origin": "https://evil.example"})).status_code == 403
++    async with async_session() as db:
++        db.add(User(username="reader", password_hash="unused", password_salt="", role="user"))
++        await db.commit()
++    cabinet_client.cookies.set(SESSION_COOKIE, create_session_token("reader", "admin"))
++    assert (await cabinet_client.get(path)).status_code == 403
++
++
++@pytest.mark.asyncio
++async def test_mailbox_id_cannot_be_used_under_another_project(site, cabinet_client):
++    row = await account(site)
++    async with async_session() as db:
++        other = Site(name="Other", domain="other.ru", sender_email="a@other.ru", api_key="sm_other")
++        db.add(other)
++        await db.commit()
++    path = f"/admin/sites/{other.id}"
++    token = await csrf(cabinet_client, path)
++    assert (await cabinet_client.get(f"{path}/mailboxes/{row.id}/edit")).status_code == 404
++    assert (await cabinet_client.post(f"{path}/mailboxes/{row.id}/delete", data={"csrf_token": token})).status_code == 404
++
++
++@pytest.mark.asyncio
++async def test_connection_test_redacts_password_before_db_and_html(site, cabinet_client, monkeypatch):
++    row = await account(site)
++    encoded = base64.b64encode(row.password.encode()).decode()
++    monkeypatch.setattr("app.routes_mailboxes.test_connection", lambda *args: (False, f"error {row.password} {encoded}", []))
++    path = f"/admin/sites/{site.id}"
++    result = await cabinet_client.post(f"{path}/mailboxes/{row.id}/test", data={"csrf_token": await csrf(cabinet_client, path)})
++    assert result.status_code == 303
++    async with async_session() as db:
++        saved = await db.get(Mailbox, row.id)
++        assert saved.last_test_ok is False
++        assert row.password not in saved.last_test_error and encoded not in saved.last_test_error
++    page = await cabinet_client.get(path)
++    assert row.password not in page.text and encoded not in page.text
++
++
++@pytest.mark.asyncio
++async def test_send_error_redacts_plain_and_encoded_auth(site, monkeypatch):
++    row = await account(site)
++    encoded = base64.b64encode(f"\0{row.email}\0{row.password}".encode()).decode()
++    monkeypatch.setattr("app.providers.send_email", lambda **kw: (False, f"refused {row.password} {encoded}"))
++    async with async_session() as db:
++        ok, error, _ = await send_via_providers(db, await db.get(Site, site.id), **message())
++    assert not ok and row.password not in error and encoded not in error
++
++
++@pytest.mark.asyncio
++async def test_dns_screen_does_not_recommend_replacing_beget_mx(site, cabinet_client):
++    await account(site)
++    page = await cabinet_client.get(f"/admin/sites/{site.id}/dns")
++    assert page.status_code == 200 and "Оставьте MX" in page.text
++    result = await cabinet_client.get("/api/domains/example.com/dns", headers={"Authorization": "Bearer sm_testkey"})
++    assert result.status_code == 200 and result.json()["records"] == []
++    assert result.json()["managed_by"] == "beget"
++
++
++@pytest.mark.asyncio
++async def test_old_schema_migration_preserves_sites_and_encrypted_accounts(site):
++    row = await account(site)
++    async with engine.begin() as conn:
++        await conn.execute(text("ALTER TABLE sites DROP COLUMN mailbox_mode"))
++    await migrate_hardening()
++    async with async_session() as db:
++        project = await db.get(Site, site.id)
++        assert project.domain == "example.com" and project.api_key == "sm_testkey"
++        assert (await db.get(Mailbox, row.id)).password == "secret-account-one"
++        assert project.mailbox_mode is False  # legacy rows default to compatibility mode
++
++
++@pytest.mark.asyncio
++async def test_deleting_site_cascades_mailbox_secrets(site, cabinet_client):
++    row = await account(site)
++    async with async_session() as db:
++        await enqueue_message(db, await db.get(Site, site.id), message())
++        await db.commit()
++    path = f"/admin/sites/{site.id}"
++    result = await cabinet_client.post(path+"/delete", data={"csrf_token": await csrf(cabinet_client, path)})
++    assert result.status_code == 302
++    async with async_session() as db:
++        assert await db.get(Mailbox, row.id) is None
++        assert not (await db.execute(select(OutboxMessage))).scalars().all()
++
++
++@pytest.mark.asyncio
++async def test_smtp_scope_uses_project_domain_for_cross_domain_mailbox(site):
++    await account(site, "info@trioz.ru")
++    async with async_session() as db:
++        db.add(User(username="submitter", password_hash="unused", password_salt="", role="user", smtp_domains="example.com"))
++        await db.commit()
++    session = SimpleNamespace(authenticated=True, ssl=True, smtp_username="submitter")
++    envelope = SimpleNamespace(mail_from="", mail_options=[])
++    result = await SmtpHandler().handle_MAIL(None, session, envelope, "info@trioz.ru", [])
++    assert result.startswith("250") and session.smtp_site_id == site.id
++    result = await SmtpHandler().handle_MAIL(None, session, envelope, "unknown@trioz.ru", [])
++    assert result.startswith("553")
++
++
++@pytest.mark.asyncio
++async def test_smtp_from_header_cannot_switch_to_another_mailbox(site):
++    await account(site)
++    await account(site, "sales@example.com")
++    raw = b"From: sales@example.com\r\nTo: a@example.net\r\nSubject: hello\r\n\r\nbody"
++    result = await SmtpHandler()._relay_outbound("info@example.com", ["a@example.net"], raw, "hello", "body", site_id=site.id)
++    assert result.startswith("553")
++
++
++@pytest.mark.asyncio
++async def test_template_send_selects_specific_mailbox(site, cabinet_client, monkeypatch):
++    from app.models import EmailTemplate
++    await account(site)
++    await account(site, "sales@example.com")
++    async with async_session() as db:
++        db.add(EmailTemplate(site_id=site.id, name="Hello", slug="hello", subject="Welcome",
++                             body_html="<p>Hello</p>", body_text="Hello"))
++        await db.commit()
++    calls = []
++    def fake(**kw):
++        calls.append(kw)
++        return True, ""
++    monkeypatch.setattr("app.providers.send_email", fake)
++    result = await cabinet_client.post("/api/send", headers={"Authorization": "Bearer sm_testkey"}, json={
++        "site_domain": "example.com", "template_slug": "hello", "to_email": "a@example.net",
++        "from_email": "info@example.com"})
++    assert result.status_code == 200 and calls[0]["relay_username"] == "info@example.com"
++
++
++def test_transport_redacts_secrets_before_logging(monkeypatch, caplog):
++    import smtplib
++
++    from app.smtp_client import _send_via_relay
++    secret = "do-not-log-this"
++    encoded = base64.b64encode(secret.encode()).decode()
++    def failing(*args, **kw):
++        raise smtplib.SMTPAuthenticationError(535, f"bad auth {secret} {encoded}".encode())
++    monkeypatch.setattr("app.smtp_client.SafeSMTP_SSL", failing)
++    ok, error = _send_via_relay(b"From: info@example.com\r\n\r\nTest", "info@example.com",
++                               "a@example.net", "smtp.beget.com", 465, "info@example.com", secret, True)
++    assert not ok
++    assert secret not in error and encoded not in error
++    assert secret not in caplog.text and encoded not in caplog.text
++
++
++@pytest.mark.asyncio
++async def test_unknown_delivery_is_not_replayed(site, monkeypatch):
++    await account(site)
++    calls = []
++    def fake(**kw):
++        calls.append(kw)
++        return False, "uncertain: connection interrupted after DATA"
++    monkeypatch.setattr("app.providers.send_email", fake)
++    async with async_session() as db:
++        job = await enqueue_message(db, await db.get(Site, site.id), message())
++        await db.commit()
++    await dispatch_due()
++    await dispatch_due()
++    async with async_session() as db:
++        assert (await db.get(OutboxMessage, job.id)).status == "unknown"
++    assert len(calls) == 1
+--- a/tools/backup_before_beget.sh
++++ b/tools/backup_before_beget.sh
+@@ -0,0 +1,27 @@
++#!/bin/sh
++# Run BEFORE overlaying the update. Never publish this backup (it contains secrets).
++set -eu
++PROJECT_DIR=${1:-/root/pochta}
++cd "$PROJECT_DIR"
++PROJECT_DIR=$(pwd -P)
++BACKUP_ROOT=$(dirname "$PROJECT_DIR")/pochta-backups
++mkdir -p "$BACKUP_ROOT"
++chmod 700 "$BACKUP_ROOT"
++BACKUP_DIR=$(mktemp -d "$BACKUP_ROOT/beget-$(date +%Y%m%d-%H%M%S)-XXXXXX")
++chmod 700 "$BACKUP_DIR"
++
++# Snapshot source/config outside the project, without runtime caches or Git history.
++tar --exclude='./.git' --exclude='./data' --exclude='./.venv*' \
++    --exclude='./__pycache__' --exclude='./.pytest_cache' --exclude='./.ruff_cache' \
++    -czf "$BACKUP_DIR/project-before.tar.gz" .
++chmod 600 "$BACKUP_DIR/project-before.tar.gz"
++
++# Stop the worker for a consistent volume snapshot. Failure leaves it stopped;
++# no new code is applied by this script.
++docker compose stop smtp-service
++# This service already mounts smtp-data:/app/data. One-off run has no public ports.
++docker compose run --rm --no-deps --user 0 \
++    -v "$BACKUP_DIR:/backup" smtp-service sh -c \
++    'mkdir -p /backup/data && cp -a /app/data/. /backup/data/'
++chmod -R go-rwx "$BACKUP_DIR"
++printf '\nBackup ready: %s\nService is stopped. Apply update, then rebuild.\n' "$BACKUP_DIR"

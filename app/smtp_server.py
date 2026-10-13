@@ -19,6 +19,7 @@ from sqlalchemy import select
 from app.config import settings
 from app.database import async_session
 from app.domain_util import normalize_domain, normalize_email
+from app.mailboxes import smtp_project, validate_sender
 from app.models import EmailLog, Site, User, verify_password
 
 logger = logging.getLogger(__name__)
@@ -56,8 +57,14 @@ class SmtpHandler:
             username = getattr(session, "smtp_username", "")
             async with async_session() as db:
                 user = (await db.execute(select(User).where(User.username == username, User.is_active.is_(True)))).scalar_one_or_none()
-                if not user or _extract_domain(address) not in (user.smtp_domains or "").split(","):
-                    return "553 Sender domain not allowed for this account"
+                if not user:
+                    return "553 Sender account is inactive"
+                allowed = [d.strip() for d in (user.smtp_domains or "").split(",") if d.strip()]
+                try:
+                    site = await smtp_project(db, normalize_email(address), allowed)
+                except ValueError:
+                    return "553 Sender not allowed or ambiguous for this account"
+                session.smtp_site_id = site.id
             now = time.monotonic()
             hits = [t for t in self._account_hits[username] if t > now - 60]
             if len(hits) >= settings.smtp_account_per_min:
@@ -120,7 +127,8 @@ class SmtpHandler:
             return "550 Message parse error"
 
         if authenticated:
-            return await self._relay_outbound(mail_from, rcpt_tos, data, subject, body)
+            return await self._relay_outbound(mail_from, rcpt_tos, data, subject, body,
+                                              site_id=getattr(session, "smtp_site_id", None))
 
         if not settings.inbound_enabled:
             return "550 Inbound mail disabled"
@@ -176,7 +184,7 @@ class SmtpHandler:
             return "451 Temporary storage failure; retry later"
         return "250 Message accepted"
 
-    async def _relay_outbound(self, mail_from, rcpt_tos, raw_data, subject, body):
+    async def _relay_outbound(self, mail_from, rcpt_tos, raw_data, subject, body, site_id=None):
         from app.outbox import enqueue_message
         try:
             mail_from = normalize_email(mail_from)
@@ -188,9 +196,15 @@ class SmtpHandler:
             if _extract_domain(header_sender) != _extract_domain(mail_from):
                 return "553 Header From must match envelope domain"
             async with async_session() as db:
-                site = (await db.execute(select(Site).where(Site.domain == _extract_domain(mail_from), Site.is_active.is_(True)))).scalar_one_or_none()
-                if not site:
-                    return "553 No active site for sender domain"
+                site = await db.get(Site, site_id) if site_id else (
+                    await db.execute(select(Site).where(
+                        Site.domain == _extract_domain(mail_from), Site.is_active.is_(True)
+                    ))).scalar_one_or_none()
+                if not site or not site.is_active:
+                    return "553 No active project for sender"
+                mailbox = await validate_sender(db, site, mail_from)
+                if mailbox and header_sender.lower() != mail_from.lower():
+                    return "553 Header From must match the registered mailbox"
                 if not 1 <= len(rcpt_tos) <= settings.smtp_max_recipients:
                     return "452 Invalid recipient count"
                 for recipient in rcpt_tos:

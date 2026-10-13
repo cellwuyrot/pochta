@@ -18,7 +18,7 @@ import dns.resolver
 
 from app.config import settings
 from app.dkim_util import sign_message
-from app.smtp_transport import SafeSMTP, SafeSMTP_SSL
+from app.smtp_transport import SafeSMTP, SafeSMTP_SSL, redact_smtp_error
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +134,7 @@ def _send_via_relay(
         error = ("uncertain: " if data_started and isinstance(exc, (OSError, smtplib.SMTPServerDisconnected)) else "") + str(exc)
         if isinstance(exc, smtplib.SMTPDataError) and exc.smtp_code >= 500:
             error = "permanent: " + error
+        error = redact_smtp_error(error, username, password)
         logger.error("Relay send to %s via %s:%d failed: %s", to_email, host, port, error)
         return False, error
     finally:

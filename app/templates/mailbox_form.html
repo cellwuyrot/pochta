@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Изменить почту' if mailbox else 'Добавить почту' }} — {{ site.name }}{% endblock %}
+{% block body %}
+<div class="layout">{% set active='sites' %}{% include 'nav.html' %}
+<main class="main project-cabinet">
+    <p class="eyebrow">{{ site.domain }} / Почтовые ящики</p>
+    <div class="page-header"><h2>{{ 'Изменить почту' if mailbox else 'Добавить почту' }}</h2><a href="/admin/sites/{{ site.id }}" class="btn">В кабинет</a></div>
+    <section class="section form-width">
+        <div class="notice">Сначала создайте ящик в панели Beget. Здесь укажите его полный адрес и пароль от почты, а не пароль аккаунта хостинга. Добавление здесь не создаёт новый ящик в Beget.</div>
+        {% if error %}<div class="notice" role="alert">{{ error }}</div>{% endif %}
+        <form method="post">
+            <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+            <div class="form-group"><label for="email">Адрес почты Beget</label><input id="email" type="email" name="email" value="{{ mailbox.email if mailbox else '' }}" autocomplete="username" required maxlength="254" placeholder="info@trioz.ru"></div>
+            <div class="form-group"><label for="display-name">Имя отправителя</label><input id="display-name" name="display_name" value="{{ mailbox.display_name if mailbox else '' }}" maxlength="255" placeholder="Команда Trioz"></div>
+            <div class="form-group"><label for="password">{{ 'Новый пароль почты' if mailbox else 'Пароль почты' }}</label><input id="password" type="password" name="password" autocomplete="new-password" maxlength="1024" {% if not mailbox %}required{% endif %}><p class="muted">{% if mailbox %}Оставьте пустым, чтобы сохранить текущий пароль. {% endif %}Пароль хранится зашифрованным и не показывается повторно.</p></div>
+            <div class="notice">SMTP: <strong>smtp.beget.com</strong> · порт <strong>465</strong> · SSL/TLS. Логин — полный адрес почты. Эти параметры задаются автоматически.</div>
+            <div class="form-group"><div class="form-check"><input id="account-active" name="is_active" type="checkbox" value="true" {% if not mailbox or mailbox.is_active %}checked{% endif %}><label for="account-active">Активен для отправки</label></div>
+            <div class="form-check"><input id="account-default" name="is_default" type="checkbox" value="true" {% if mailbox and mailbox.is_default %}checked{% endif %}><label for="account-default">Использовать по умолчанию для шаблонов</label></div></div>
+            <div class="actions"><button class="btn btn-primary" type="submit">Сохранить почту</button><a href="/admin/sites/{{ site.id }}" class="btn">Отмена</a></div>
+        </form>
+    </section>
+</main></div>
+{% endblock %}

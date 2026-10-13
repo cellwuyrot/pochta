@@ -137,3 +137,14 @@
 input[type=checkbox],input[type=radio]{accent-color:#111}.form-group>.muted{margin-top:8px}.messages-table{min-width:1100px}.messages-table td:first-child{min-width:170px}.messages-table td:nth-child(3),.messages-table td:nth-child(4){min-width:170px;white-space:nowrap}
 
 .templates-table td:nth-child(2){min-width:90px;white-space:nowrap}
+
+/* Project mailbox cabinet: account identities, not relay failover. */
+.project-cabinet{max-width:1400px}.project-subtitle{margin-top:12px}
+.project-toolbar{margin-bottom:24px}.mailbox-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:16px}
+.mailbox-heading h3{margin-bottom:0}.mailbox-heading h4{font-size:18px;font-weight:600;overflow-wrap:anywhere;min-width:0;flex:1}
+.mailbox-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}
+.mailbox-card{border:1px solid var(--border);padding:24px;min-width:0;background:var(--surface)}
+.mailbox-card p{overflow-wrap:anywhere}.mailbox-check{margin:16px 0 24px;min-height:24px}.mailbox-help{margin-bottom:24px}
+.project-table{overflow-x:auto}.project-cabinet .notice{overflow-wrap:anywhere}.project-cabinet code{overflow-wrap:anywhere}
+@media(max-width:1100px){.mailbox-grid{grid-template-columns:1fr}}
+@media(max-width:700px){.mailbox-card{padding:20px}.mailbox-heading{gap:12px}.mailbox-card .actions{gap:8px}}

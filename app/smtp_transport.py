@@ -1,5 +1,6 @@
 """Validated, IP-pinned SMTP connections with original-host TLS verification."""
 
+import base64
 import ipaddress
 import smtplib
 import socket
@@ -42,3 +43,17 @@ class SafeSMTP_SSL(smtplib.SMTP_SSL):
         except Exception:
             sock.close()
             raise
+
+
+def redact_smtp_error(error, username="", password=""):
+    if not password:
+        return error
+    variants = {
+        password, repr(password)[1:-1],
+        base64.b64encode(password.encode()).decode(),
+        base64.b64encode(f"\0{username}\0{password}".encode()).decode(),
+    }
+    for secret in sorted(variants, key=len, reverse=True):
+        if secret:
+            error = error.replace(secret, "[redacted]")
+    return error

@@ -41,6 +41,11 @@
                 </div>
                 {% endif %}
 
+                {% if site and site.mailbox_mode %}
+                <div class="notice">Для этого проекта включена отправка через отдельные почтовые ящики.
+                <a href="/admin/sites/{{ site.id }}">Управлять почтами в кабинете</a>.
+                Поля SMTP Relay ниже не используются для этого проекта.</div>
+                {% endif %}
                 <h3 class="legacy-64">SMTP Relay (необязательно)</h3>
                 {% if provider_count %}
                 <div class="legacy-65">

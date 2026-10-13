@@ -1,27 +1,27 @@
+# Python caches and packages
 __pycache__/
 *.py[cod]
 *$py.class
-.env
-data/
-*.db
-.venv/
+*.egg-info/
+.pytest_cache/
 .ruff_cache/
 dist/
-*.egg-info/
+build/
 
-# local tooling
+# Local environments and tooling
 .venv*/
 .uvpy/
 _smoke_test.py
 
-# Server secrets and runtime data
+# Secrets and runtime data
 .env
 .env.*
 !.env.example
-tls/
 data/
+tls/
+backups/
+*.pem
+*.key
 *.db
 *.db-shm
 *.db-wal
-__pycache__/
-.venv/

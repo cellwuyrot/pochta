@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api_auth import authorized_site
 from app.database import get_db
+from app.mailboxes import validate_sender
 from app.models import OutboxMessage, Site
 from app.outbox import enqueue_message
 from app.routes_api import EmailSendRequest, api_rate_limit
@@ -33,8 +34,10 @@ async def queue_email(
     db: AsyncSession = Depends(get_db),
     idempotency_key: str | None = Header(default=None, max_length=255),
 ):
-    if req.from_email.rsplit("@", 1)[-1] != site.domain:
-        raise HTTPException(403, "Sender domain not authorized")
+    try:
+        await validate_sender(db, site, req.from_email)
+    except ValueError as exc:
+        raise HTTPException(403, str(exc)) from exc
     recipients = req.to if isinstance(req.to, list) else [req.to]
     # One row per request avoids partial enqueue; multi-recipient sending stays on legacy endpoint.
     if len(recipients) != 1:

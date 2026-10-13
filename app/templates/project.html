@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}{{ site.name }} — кабинет проекта{% endblock %}
+{% block body %}
+<div class="layout">
+{% set active='sites' %}{% include 'nav.html' %}
+<main class="main project-cabinet">
+    <p class="eyebrow">Кабинет проекта / {{ site.domain }}</p>
+    <div class="page-header">
+        <div><h2>{{ site.name }}</h2><p class="muted project-subtitle">{{ 'Проект активен' if site.is_active else 'Проект выключен: отправка недоступна' }}</p></div>
+        <a href="/admin/sites" class="btn">Все проекты</a>
+    </div>
+    <div class="project-toolbar actions">
+        <a href="/admin/sites/{{ site.id }}/edit" class="btn">Настройки проекта</a>
+        <a href="https://web.beget.email/" target="_blank" rel="noopener noreferrer" class="btn">Входящая почта Beget ↗</a>
+    </div>
+    <div class="notice">
+        Здесь подключаются уже созданные в Beget почтовые ящики. Один проект — несколько адресов и паролей.
+        Отправка идёт через <strong>smtp.beget.com:465 (SSL/TLS)</strong>, под аккаунтом выбранного адреса.
+        <p>Входящая почта остаётся в Beget. Не меняйте MX на этот сервис; синхронизация IMAP здесь не выполняется.
+        SPF/DKIM настройте по инструкции Beget для домена почтового ящика, не обязательно домена проекта.</p>
+    </div>
+    <section class="section">
+        <div class="mailbox-heading"><h3>Почтовые ящики <span class="muted">· {{ mailboxes|length }}</span></h3>
+            <a href="/admin/sites/{{ site.id }}/mailboxes/new" class="btn btn-primary">Добавить почту</a></div>
+        {% if mailboxes %}
+        <div class="mailbox-grid">
+        {% for m in mailboxes %}
+        <article class="mailbox-card">
+            <div class="mailbox-heading"><h4>{{ m.email }}</h4><span class="badge">{{ 'Активен' if m.is_active else 'Выключен' }}</span></div>
+            <p class="muted">{{ m.display_name or 'Без имени отправителя' }}{% if m.is_default %} · По умолчанию{% endif %}</p>
+            <p class="mailbox-check">{% if m.last_test_ok is sameas true %}Подключение проверено{% elif m.last_test_ok is sameas false %}Ошибка подключения: {{ m.last_test_error }}{% else %}Подключение ещё не проверено{% endif %}</p>
+            <div class="actions">
+                <a href="/admin/sites/{{ site.id }}/mailboxes/{{ m.id }}/edit" class="btn">Изменить</a>
+                <form method="post" action="/admin/sites/{{ site.id }}/mailboxes/{{ m.id }}/test"><input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}"><button class="btn">Проверить</button></form>
+                {% if m.is_active and not m.is_default %}<form method="post" action="/admin/sites/{{ site.id }}/mailboxes/{{ m.id }}/default"><input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}"><button class="btn">По умолчанию</button></form>{% endif %}
+                <form method="post" action="/admin/sites/{{ site.id }}/mailboxes/{{ m.id }}/toggle"><input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}"><button class="btn">{{ 'Выключить' if m.is_active else 'Включить' }}</button></form>
+                <form method="post" action="/admin/sites/{{ site.id }}/mailboxes/{{ m.id }}/delete" data-confirm="Удалить подключение {{ m.email }}? Сам ящик в Beget не удаляется."><input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}"><button class="btn btn-danger">Удалить</button></form>
+            </div>
+        </article>
+        {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state"><p>Пока нет подключённых почт. Добавьте адрес и пароль ящика, созданного в Beget.</p></div>
+        {% endif %}
+        {% if site.mailbox_mode and not site.sender_email %}<p class="notice">Нет активного ящика: отправка заблокирована до включения или добавления почты.</p>{% endif %}
+    </section>
+    {% if site.mailbox_mode and site.sender_email and site.is_active %}
+    <section class="section form-width">
+        <h3>Отправить письмо</h3><p class="muted mailbox-help">Письмо попадёт в очередь. Accepted означает приём сервером Beget, а не доставку в папку «Входящие».</p>
+        <form method="post" action="/admin/sites/{{ site.id }}/send">
+            <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+            <div class="form-group"><label for="from-email">От кого</label><select id="from-email" name="from_email" required>{% for m in mailboxes if m.is_active %}<option value="{{ m.email }}" {% if m.is_default %}selected{% endif %}>{{ m.email }}{% if m.is_default %} — по умолчанию{% endif %}</option>{% endfor %}</select></div>
+            <div class="form-group"><label for="recipient">Кому</label><input id="recipient" name="to" type="email" required maxlength="254" placeholder="recipient@gmail.com"></div>
+            <div class="form-group"><label for="subject">Тема</label><input id="subject" name="subject" required maxlength="500"></div>
+            <div class="form-group"><label for="body">Текст письма</label><textarea id="body" name="text" required maxlength="1000000"></textarea></div>
+            <button type="submit" class="btn btn-primary">Поставить в очередь</button>
+        </form>
+    </section>
+    {% endif %}
+    <section class="section">
+        <h3>Последние отправки проекта</h3>
+        {% if jobs %}<div class="project-table"><table><thead><tr><th>Дата (UTC)</th><th>Статус</th><th>Попытки</th><th>Маршрут / ошибка</th></tr></thead><tbody>{% for job in jobs %}<tr><td><a href="/admin/messages/{{ job.id }}">{{ job.created_at.strftime('%d.%m.%Y %H:%M') }}</a></td><td>{{ job.status }}</td><td>{{ job.attempts }}</td><td>{{ job.relay or 'Ожидает отправки' }}{% if job.error %}<br>{{ job.error }}{% endif %}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="muted">Отправок через очередь пока нет.</p>{% endif %}
+    </section>
+    <section class="section form-width">
+        <h3>Подключение проекта через API</h3>
+        <p class="mailbox-help">Используйте ключ этого проекта из раздела «Сайты». В <code>POST /api/outbox</code> укажите <code>from_email</code> — один из подключённых активных адресов. Список доступен через <code>GET /api/mailboxes</code>.</p>
+        <p class="muted">Домен проекта {{ site.domain }} может отличаться от домена почты: например, проект buisness.trioz.ru может отправлять от info@trioz.ru, если ящик добавлен именно сюда. Пароли не передаются в API отправки.</p>
+    </section>
+</main></div>
+{% endblock %}
